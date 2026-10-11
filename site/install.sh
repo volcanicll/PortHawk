@@ -6,24 +6,18 @@
 # 而 curl 下载的文件天生不带 quarantine，装完即开。
 #
 # 用法：curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash
+#
+# 下载走 releases/latest/download 的固定名直链，不依赖 GitHub API（匿名 API 有每小时限流）；
+# 每次发布工作流都会同时上传带版本号与固定名两份产物。
 set -euo pipefail
 
 REPO="volcanicll/PortHawk"
+URL="https://github.com/$REPO/releases/latest/download/PortHawk-arm64.dmg"
 
-echo "==> 查询最新版本…"
-URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-  | sed -n 's/.*"browser_download_url": *"\([^"]*arm64\.dmg\)".*/\1/p' | head -1)
-if [ -z "$URL" ]; then
-  echo "!! 未能获取下载地址（可能触发 GitHub API 限流）。"
-  echo "!! 请到 https://github.com/$REPO/releases/latest 手动下载，"
-  echo "!! 若打开时提示「已损坏」，执行：xattr -cr /Applications/PortHawk.app"
-  exit 1
-fi
-echo "==> 下载 $URL"
-
+echo "==> 下载最新版 $URL"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-curl -fL -o "$TMP/PortHawk.dmg" "$URL"
+curl -fL --retry 3 -o "$TMP/PortHawk.dmg" "$URL"
 
 echo "==> 挂载镜像…"
 hdiutil attach "$TMP/PortHawk.dmg" -nobrowse -quiet
@@ -41,4 +35,7 @@ hdiutil detach "$MOUNT" -quiet
 # 双保险：清掉可能存在的 quarantine（curl 下载一般没有）
 xattr -cr /Applications/PortHawk.app 2>/dev/null || true
 
-echo "==> 完成！启动：open /Applications/PortHawk.app，菜单栏见书本图标"
+VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" \
+  /Applications/PortHawk.app/Contents/Info.plist 2>/dev/null || echo "?")
+echo "==> 完成！PortHawk $VERSION 已装入 /Applications"
+echo "==> 启动：open /Applications/PortHawk.app，菜单栏见书本图标"

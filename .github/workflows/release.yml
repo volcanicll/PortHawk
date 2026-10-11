@@ -43,6 +43,11 @@ jobs:
           cd build
           ditto -c -k --keepParent PortHawk.app "../PortHawk-$VERSION-arm64.zip"
 
+      - name: 生成不带版本号的固定名副本（供 install.sh 的 latest 直链使用）
+        run: |
+          cp "PortHawk-$VERSION-arm64.dmg" "PortHawk-arm64.dmg"
+          cp "PortHawk-$VERSION-arm64.zip" "PortHawk-arm64.zip"
+
       - name: 校验产物
         run: |
           ls -lh PortHawk-*.dmg PortHawk-*.zip
