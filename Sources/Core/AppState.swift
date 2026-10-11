@@ -21,7 +21,10 @@ final class AppState: ObservableObject {
     @Published var favorites: Set<Int> {
         didSet { defaults.set(Array(favorites), forKey: "controlport.favorites") }
     }
-    @Published var systemGroupExpanded = false
+    /// 折叠的分组名。默认只折叠「系统与其他」；收藏与项目分组都可折叠。
+    @Published var collapsedGroups: Set<String> {
+        didSet { defaults.set(Array(collapsedGroups), forKey: "controlport.collapsed") }
+    }
     @Published var paused = false
     @Published var lastUpdated: Date?
     /// 结束信号已发出、等待进程退出的行，行上画红笔划线
@@ -86,6 +89,11 @@ final class AppState: ObservableObject {
             self.favorites = Set(saved)
         } else {
             self.favorites = []
+        }
+        if let savedGroups = defaults.array(forKey: "controlport.collapsed") as? [String] {
+            self.collapsedGroups = Set(savedGroups)
+        } else {
+            self.collapsedGroups = [AppState.systemGroupName]
         }
         // 启动即扫描并常驻定时器：菜单栏徽标要在用户第一次点开面板之前就有数字
         if !preview {
@@ -316,6 +324,14 @@ final class AppState: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+    }
+
+    func toggleGroup(_ name: String) {
+        if collapsedGroups.contains(name) {
+            collapsedGroups.remove(name)
+        } else {
+            collapsedGroups.insert(name)
+        }
     }
 
     /// 打开设置页（与明细页互斥）

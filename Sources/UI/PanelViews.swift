@@ -88,13 +88,13 @@ private struct ToolbarView: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ForEach(ViewMode.allCases, id: \.self) { mode in
                 tab(for: mode)
             }
-            onlyExposedChip
             Spacer()
             searchField
+            onlyExposedChip
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -109,7 +109,7 @@ private struct ToolbarView: View {
                 .font(Paper.body(11, state.onlyExposed ? .medium : .regular))
                 .foregroundStyle(state.onlyExposed ? Paper.ochre : Paper.inkSoft)
                 .padding(.horizontal, 7)
-                .padding(.vertical, 3)
+                .padding(.vertical, 4)
                 .background(
                     state.onlyExposed ? Paper.ochre.opacity(0.1) : .clear,
                     in: RoundedRectangle(cornerRadius: 5)
@@ -118,6 +118,7 @@ private struct ToolbarView: View {
                     RoundedRectangle(cornerRadius: 5)
                         .strokeBorder(state.onlyExposed ? Paper.ochre.opacity(0.5) : Paper.hairline, lineWidth: 1)
                 )
+                .fixedSize()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("只显示对外监听的端口")
@@ -141,7 +142,7 @@ private struct ToolbarView: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             Image(systemName: "magnifyingglass")
                 .font(Paper.body(10))
                 .foregroundStyle(Paper.inkSoft)
@@ -150,17 +151,21 @@ private struct ToolbarView: View {
                 Text("端口 / 进程 / 项目")
                     .font(Paper.body(12))
                     .foregroundStyle(Paper.inkSoft)
-                    .frame(width: 118, alignment: .leading)
+                    .frame(width: 140, alignment: .leading)
             } else {
                 TextField("端口 / 进程 / 项目", text: $state.query)
                     .font(Paper.body(12))
                     .textFieldStyle(.plain)
-                    .frame(width: 118)
+                    .frame(width: 140)
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Paper.bgDeep, in: RoundedRectangle(cornerRadius: 6))
+        .padding(.vertical, 5)
+        .background(Paper.bg, in: RoundedRectangle(cornerRadius: 7))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(Paper.hairline, lineWidth: 1)
+        )
     }
 }
 
@@ -204,60 +209,50 @@ private struct GroupSection: View {
     let name: String
     let entries: [PortEntry]
 
-    private var isSystemGroup: Bool { name == AppState.systemGroupName }
+    private var isCollapsed: Bool { state.collapsedGroups.contains(name) }
 
     var body: some View {
-        if isSystemGroup && !state.systemGroupExpanded {
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) { state.systemGroupExpanded = true }
-            } label: {
-                groupHeader(trailing: "\(entries.count) 个 · 点开")
-            }
-            .buttonStyle(.plain)
-        } else {
-            groupHeader(trailing: "\(entries.count) 个")
+        groupHeader
+        if !isCollapsed {
             ForEach(entries) { entry in
                 LedgerRow(entry: entry)
-            }
-            if isSystemGroup && state.systemGroupExpanded {
-                Button {
-                    withAnimation(.easeOut(duration: 0.2)) { state.systemGroupExpanded = false }
-                } label: {
-                    HStack {
-                        Spacer()
-                        Text("收起系统端口")
-                            .font(Paper.body(11))
-                            .foregroundStyle(Paper.inkSoft)
-                            .padding(.vertical, 6)
-                    }
-                    .padding(.horizontal, 16)
-                    .background(Paper.bgDeep.opacity(0.5))
-                }
-                .buttonStyle(.plain)
             }
         }
     }
 
-    private func groupHeader(trailing: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            HStack(spacing: 5) {
-                if isSystemGroup {
-                    Image(systemName: state.systemGroupExpanded ? "chevron.down" : "chevron.right")
-                        .font(Paper.body(9, .semibold))
-                        .foregroundStyle(Paper.inkSoft)
+    /// 分组带：左箭头折叠/展开，收藏组带 ★；右侧计数 + 折叠钮，整条可点。
+    private var groupHeader: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) { state.toggleGroup(name) }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(Paper.body(9, .semibold))
+                    .foregroundStyle(Paper.inkSoft)
+                    .frame(width: 11)
+                if name == "收藏" {
+                    Image(systemName: "star.fill")
+                        .font(Paper.body(10))
+                        .foregroundStyle(Paper.ochre)
                 }
                 Text(name)
                     .font(Paper.songti(13, .bold))
                     .foregroundStyle(Paper.ink)
+                Spacer()
+                Text("\(entries.count) 个")
+                    .font(Paper.mono(10))
+                    .foregroundStyle(Paper.inkSoft)
+                Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
+                    .font(Paper.body(9, .semibold))
+                    .foregroundStyle(Paper.inkSoft.opacity(0.8))
             }
-            Spacer()
-            Text(trailing)
-                .font(Paper.mono(10))
-                .foregroundStyle(Paper.inkSoft)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .background(Paper.bgDeep)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 7)
-        .background(Paper.bgDeep)
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(isCollapsed ? "展开" : "折叠")分组 \(name)")
     }
 }
 
@@ -275,13 +270,13 @@ private struct LedgerRow: View {
     private var isPendingKill: Bool { state.pendingKillId == entry.id }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             // 左侧页码列：等宽大号端口号
             Text(String(entry.port))
                 .font(Paper.mono(16, .semibold))
                 .monospacedDigit()
                 .foregroundStyle(isKilling ? Paper.inkSoft : Paper.ink)
-                .frame(width: 56, alignment: .trailing)
+                .frame(width: 52, alignment: .trailing)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -322,12 +317,12 @@ private struct LedgerRow: View {
             if entry.pid > 0 { scopeBadge }
             starButton
             if entry.pid > 0 {
-                killButton
+                rowActions
             } else {
-                Color.clear.frame(width: 58)
+                Color.clear.frame(width: 88)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .background(hovered && entry.pid > 0 ? Paper.bgDeep : .clear)
         .contentShape(Rectangle())
@@ -339,29 +334,38 @@ private struct LedgerRow: View {
         .help(helpText)
         .opacity(isPlaceholder ? 0.55 : (isKilling ? 0.55 : 1))
         .contextMenu {
-            Button("复制端口号 \(entry.port)") {
-                if state.copyToPasteboard(String(entry.port)) {
-                    state.flash("已复制端口 \(entry.port)")
-                }
-            }
             if entry.pid > 0 {
-                Button("复制 PID \(entry.pid)") {
-                    if state.copyToPasteboard(String(entry.pid)) {
-                        state.flash("已复制 PID \(entry.pid)")
-                    }
-                }
-                Divider()
-                Button("结束「\(entry.processName)」") {
-                    state.requestKill(entry)
-                }
-                Button("强制结束（SIGKILL）", role: .destructive) {
-                    state.requestKill(entry, force: true)
-                }
+                actionMenuItems
             } else {
+                Button("复制端口号 \(entry.port)") {
+                    _ = state.copyToPasteboard(String(entry.port))
+                }
                 Button("取消收藏") {
                     state.toggleFavorite(port: entry.port)
                 }
             }
+        }
+    }
+
+    /// 右键菜单与行内 ⋯ 菜单共用同一组操作
+    @ViewBuilder
+    private var actionMenuItems: some View {
+        Button("复制端口号 \(entry.port)") {
+            if state.copyToPasteboard(String(entry.port)) {
+                state.flash("已复制端口 \(entry.port)")
+            }
+        }
+        Button("复制 PID \(entry.pid)") {
+            if state.copyToPasteboard(String(entry.pid)) {
+                state.flash("已复制 PID \(entry.pid)")
+            }
+        }
+        Divider()
+        Button("结束「\(entry.processName)」") {
+            state.requestKill(entry)
+        }
+        Button("强制结束（SIGKILL）", role: .destructive) {
+            state.requestKill(entry, force: true)
         }
     }
 
@@ -412,7 +416,41 @@ private struct LedgerRow: View {
         .accessibilityLabel("收藏端口 \(entry.port)")
     }
 
-    /// 结束按钮：悬停浮现；第一步变实心「确认结束」，2.5 秒内再点才真发信号。
+    /// 行尾操作区：平时一枚「›」钻取暗示；悬停变「结束（两步）+ ⋯ 菜单」。
+    @ViewBuilder
+    private var rowActions: some View {
+        ZStack {
+            if hovered || isKilling || isPendingKill {
+                HStack(spacing: 6) {
+                    killButton
+                    Menu {
+                        actionMenuItems
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(Paper.body(12, .semibold))
+                            .foregroundStyle(Paper.inkSoft)
+                            .frame(width: 24, height: 22)
+                            .background(Paper.bgDeep, in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel("更多操作")
+                }
+                .transition(.opacity)
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(Paper.body(10, .semibold))
+                    .foregroundStyle(Paper.inkSoft.opacity(0.55))
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: 88, alignment: .trailing)
+        .animation(.easeOut(duration: 0.12), value: hovered)
+        .animation(.easeOut(duration: 0.12), value: state.pendingKillId)
+    }
+
+    /// 结束按钮：第一步变实心「确认结束」，2.5 秒内再点才真发信号。
     @ViewBuilder
     private var killButton: some View {
         ZStack {
@@ -429,7 +467,7 @@ private struct LedgerRow: View {
                 }
                 .buttonStyle(.plain)
                 .transition(.opacity)
-            } else if hovered || isKilling {
+            } else {
                 Button {
                     state.requestKill(entry)
                 } label: {
@@ -442,9 +480,7 @@ private struct LedgerRow: View {
                 .accessibilityLabel("结束进程 \(entry.processName)")
             }
         }
-        .frame(width: 58, alignment: .trailing)
-        .animation(.easeOut(duration: 0.12), value: hovered)
-        .animation(.easeOut(duration: 0.12), value: state.pendingKillId)
+        .frame(width: 52, alignment: .trailing)
     }
 
     /// 红笔划账：结束进程时一道朱砂线从左划到右。
@@ -573,10 +609,9 @@ private struct SettingsView: View {
                     .foregroundStyle(Paper.inkSoft)
             }
             Spacer()
-            // SwitchToggleStyle(tint:) 是 macOS 上给开关轨道着色的可靠 API，.tint 不生效
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-                .toggleStyle(SwitchToggleStyle(tint: Paper.blue))
+            // 自绘开关：系统 SwitchToggleStyle 在 macOS 26 上不吃 tint，蓝墨轨道画不出来
+            PaperToggle(isOn: isOn)
+                .accessibilityLabel(title)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -641,7 +676,7 @@ private struct DetailView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("返回账簿")
-                Text("明细")
+                Text("进程详情")
                     .font(Paper.songti(15, .bold))
                     .foregroundStyle(Paper.ink)
                 Spacer()
@@ -704,7 +739,7 @@ private struct DetailView: View {
                     section("命令") {
                         let line = detail.commandLine?.joined(separator: " ") ?? "—"
                         Text(line)
-                            .font(Paper.mono(11))
+                            .font(Paper.body(12))
                             .foregroundStyle(Paper.ink)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -780,7 +815,8 @@ private struct DetailView: View {
                 .foregroundStyle(Paper.inkSoft)
                 .frame(width: 62, alignment: .leading)
             Text(value)
-                .font(Paper.mono(11))
+                .font(Paper.body(12))
+                .monospacedDigit()
                 .foregroundStyle(Paper.ink)
                 .textSelection(.enabled)
                 .lineLimit(wraps ? nil : 1)

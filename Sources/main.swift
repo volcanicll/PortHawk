@@ -275,7 +275,7 @@ enum PreviewWindow {
                 state.viewMode = .project  // 复现用户的场景：按项目视图下进出设置
                 state.showSettings = true
                 // 模拟「从设置返回」：在截图前先关掉设置页，复现返回后的列表状态
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.4) {
                     state.showSettings = false
                 }
             }

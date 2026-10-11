@@ -48,3 +48,28 @@ struct SealMark: View {
             )
     }
 }
+
+/// 自绘开关：系统 SwitchToggleStyle 在 macOS 26 上吃不到自定义 tint，
+/// 设计稿里的蓝墨轨道只能自己画。开=蓝墨轨道白旋钮，关=淡墨轨道。
+struct PaperToggle: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.15)) { isOn.toggle() }
+        } label: {
+            ZStack(alignment: isOn ? .trailing : .leading) {
+                Capsule()
+                    .fill(isOn ? Paper.blue : Paper.inkSoft.opacity(0.28))
+                    .frame(width: 40, height: 24)
+                Circle()
+                    .fill(.white)
+                    .frame(width: 20, height: 20)
+                    .shadow(color: Paper.ink.opacity(0.15), radius: 1, x: 0, y: 1)
+                    .padding(2)
+            }
+        }
+        .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.15), value: isOn)
+    }
+}
