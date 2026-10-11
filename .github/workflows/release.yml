@@ -1,0 +1,55 @@
+name: Release
+
+# 推送 v* 标签触发：注入版本号 → 构建 → 打 DMG/zip 安装包 → 创建 GitHub Release。
+# 落地页的下载按钮通过 Releases API 自动拿到新版本，无需重新部署网站。
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 从 tag 注入版本号
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          plutil -replace CFBundleShortVersionString -string "$VERSION" Resources/Info.plist
+          plutil -replace CFBundleVersion -string "$VERSION" Resources/Info.plist
+
+      - name: 构建
+        run: ./build.sh
+
+      - name: 打 DMG 安装包
+        run: |
+          hdiutil create \
+            -volname "PortHawk $VERSION" \
+            -srcfolder build/PortHawk.app \
+            -ov -format UDZO \
+            "PortHawk-$VERSION-arm64.dmg"
+
+      - name: 打 zip 备选包
+        run: |
+          cd build
+          ditto -c -k --keepParent PortHawk.app "../PortHawk-$VERSION-arm64.zip"
+
+      - name: 校验产物
+        run: |
+          ls -lh PortHawk-*.dmg PortHawk-*.zip
+          hdiutil imageinfo "PortHawk-$VERSION-arm64.dmg" > /dev/null && echo "DMG 校验通过"
+
+      - name: 创建 Release 并上传
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "PortHawk $GITHUB_REF_NAME" \
+            --generate-notes \
+            "PortHawk-$VERSION-arm64.dmg" \
+            "PortHawk-$VERSION-arm64.zip"

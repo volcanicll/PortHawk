@@ -1,0 +1,28 @@
+name: CI
+
+# 主线构建自检：Sources/Resources/build.sh 变化或 PR 时跑一次编译，
+# 保证 build.sh 在干净环境始终可用。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "Resources/**"
+      - "build.sh"
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建
+        run: ./build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PortHawk-app
+          path: build/PortHawk.app
