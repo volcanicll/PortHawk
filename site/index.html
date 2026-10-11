@@ -113,9 +113,13 @@
   <!-- 安装 -->
   <section id="install" class="wrap install">
     <h2>三步入账</h2>
+    <p class="install-lead">推荐终端一条命令——自动下载最新版装入「应用程序」，无需理会 Gatekeeper：</p>
+    <div class="cmd-box">
+      <code>curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash</code>
+    </div>
     <ol class="steps">
-      <li><span>1</span><a id="install-link" href="https://github.com/volcanicll/PortHawk/releases/latest">下载最新 DMG</a>（或 zip，arm64）</li>
-      <li><span>2</span>拖入「应用程序」，首次打开右键 → 打开</li>
+      <li><span>1</span>或手动 <a id="install-link" href="https://github.com/volcanicll/PortHawk/releases/latest">下载 DMG</a>，把 PortHawk.app 拖入「应用程序」</li>
+      <li><span>2</span>首次打开若提示「已损坏 / 无法验证开发者」：应用为临时签名（未公证），终端执行 <code>xattr -cr /Applications/PortHawk.app</code> 再打开</li>
       <li><span>3</span>菜单栏出现书本图标与端口计数，点开即用</li>
     </ol>
     <p class="build-note">喜欢源码构建？<code>git clone</code> 后执行 <code>./build.sh</code>，只需要 Command Line Tools。</p>

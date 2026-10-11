@@ -6,7 +6,11 @@
 [![Release](https://img.shields.io/github/v/release/volcanicll/PortHawk?color=A3321C&label=%E7%89%88%E6%9C%AC)](https://github.com/volcanicll/PortHawk/releases/latest)
 [![Site](https://img.shields.io/badge/%E8%90%BD%E5%9C%B0%E9%A1%B5-2D4B6F)](https://volcanicll.github.io/PortHawk/)
 
-**下载安装**：前往 [落地页](https://volcanicll.github.io/PortHawk/) 或 [Releases](https://github.com/volcanicll/PortHawk/releases/latest) 获取 DMG 安装包。
+**下载安装**：前往 [落地页](https://volcanicll.github.io/PortHawk/)，或终端一条命令安装最新版：
+
+```bash
+curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash
+```
 
 ![面板总览](verify/panel.png)
 
@@ -30,6 +34,17 @@ PortHawk 是一个原生 SwiftUI 菜单栏应用（`MenuBarExtra`），整个 Ap
 | 明细页 | 设置页 |
 | --- | --- |
 | ![明细页](verify/detail.png) | ![设置页](verify/settings.png) |
+
+## 安装与签名说明
+
+应用使用 **ad-hoc 临时签名**（仓库无 Apple Developer 证书，未公证）。这带来一个已知代价：
+
+- **浏览器下载的 DMG/zip 带 quarantine 标记**，首次打开会弹「已损坏，无法打开」或「无法验证开发者」。
+- 两种解法：
+  1. **用安装脚本**（推荐）：`curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash`——curl 下载的文件不带 quarantine，装完直接能开，且总是最新版；
+  2. **手动安装后清除标记**：`xattr -cr /Applications/PortHawk.app`，之后正常打开。
+
+若要彻底消除该提示，需要 Developer ID 证书签名 + 公证（Apple Developer Program，$99/年）；收到 `codesign` 证书后在 `release.yml` 构建步骤加入签名与 `notarytool` 公证即可。
 
 ## 构建与运行
 

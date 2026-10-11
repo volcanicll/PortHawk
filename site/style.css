@@ -109,7 +109,13 @@ code { font-family: var(--mono); font-size: 0.9em; background: var(--paper-deep)
 
 /* 安装 */
 .install { padding: 88px 24px 0; }
-.steps { list-style: none; margin-top: 32px; max-width: 560px; }
+.install-lead { margin-top: 16px; font-size: 15px; }
+.cmd-box {
+  margin-top: 16px; background: var(--card); border: 1px solid var(--hairline);
+  border-radius: 8px; padding: 14px 18px; overflow-x: auto;
+}
+.cmd-box code { background: none; padding: 0; font-size: 13.5px; color: var(--blue); }
+.steps { list-style: none; margin-top: 24px; max-width: 640px; }
 .steps li {
   display: flex; align-items: baseline; gap: 14px;
   padding: 14px 4px; border-bottom: 1px solid var(--hairline); font-size: 15px;
