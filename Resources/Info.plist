@@ -8,6 +8,8 @@
 	<string>PortHawk</string>
 	<key>CFBundleExecutable</key>
 	<string>PortHawk</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>app.porthawk.PortHawk</string>
 	<key>CFBundleInfoDictionaryVersion</key>

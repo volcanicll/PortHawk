@@ -14,6 +14,7 @@ swiftc -O -swift-version 5 \
     -o "$APP/Contents/MacOS/PortHawk"
 
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 codesign --force -s - "$APP" 2>/dev/null || true
 

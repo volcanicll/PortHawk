@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PortHawk · Port Ledger — which app owns which port, at a glance</title>
+  <meta name="description" content="PortHawk is a port ledger living in your macOS menu bar: which app owns which port, which project runs which port. Native SwiftUI, ~1 MB.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="assets/icon.png">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <span class="brand">PortHawk <span class="brand-zh">端口簿</span></span>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/volcanicll/PortHawk" target="_blank" rel="noopener">Source</a>
+        <a href="index.html" title="切换到中文">中文</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero wrap">
+    <p class="eyebrow">macOS · menu bar · native SwiftUI</p>
+    <h1>Which app owns which port,<br>which project runs which port.</h1>
+    <p class="sub">
+      PortHawk keeps a ledger of every TCP listening port on your Mac: who is listening,
+      which project it belongs to, and whether the LAN can see it. Refreshed every 3 seconds —
+      a native SwiftUI binary of about 1 MB, no Electron, no background daemons.
+    </p>
+    <div class="hero-actions">
+      <a id="download-btn" class="btn btn-primary" href="https://github.com/volcanicll/PortHawk/releases/latest">
+        Download PortHawk <span class="btn-ver" id="download-version"></span>
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/volcanicll/PortHawk#readme">Docs &amp; source</a>
+    </div>
+    <p class="hero-meta" id="release-meta">
+      Latest <span class="mono" id="release-version">v0.1.0</span> · macOS 13+
+    </p>
+  </section>
+
+  <section class="wrap ledger-demo" aria-hidden="true">
+    <div class="demo-card">
+      <div class="demo-row">
+        <span class="demo-port">3000</span>
+        <span class="demo-name"><i class="dot dot-green"></i>node <em>「PortHawk」</em></span>
+        <span class="demo-badge">LAN</span>
+      </div>
+      <div class="demo-row">
+        <span class="demo-port">5173</span>
+        <span class="demo-name"><i class="dot dot-blue"></i>node <em>「frontend-lab-website」</em></span>
+        <span class="demo-badge">local</span>
+      </div>
+      <div class="demo-row">
+        <span class="demo-port">5432</span>
+        <span class="demo-name"><i class="dot dot-blue"></i>postgres <em>system</em></span>
+        <span class="demo-badge">local</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap screenshot">
+    <img src="assets/panel.png" alt="PortHawk ledger panel" loading="lazy">
+  </section>
+
+  <section id="features" class="wrap features">
+    <h2>Six strokes of the pen</h2>
+    <div class="feature-grid">
+      <article class="feature">
+        <h3><span class="fno">01</span>Project ownership</h3>
+        <p>Reads each process's working directory to infer its project. Switch between "by project" and "by port" views — dev servers stop being anonymous.</p>
+      </article>
+      <article class="feature">
+        <h3><span class="fno">02</span>Detail inspector</h3>
+        <p>Open any row for a full page: complete command line, executable path, user, threads, memory and live CPU%.</p>
+      </article>
+      <article class="feature">
+        <h3><span class="fno">03</span>Ink cancellation</h3>
+        <p>Hover for "End"; a two-step confirm prevents accidents. A killed row gets struck through with a vermilion line, like ink cancelling a ledger entry.</p>
+      </article>
+      <article class="feature">
+        <h3><span class="fno">04</span>Favorites &amp; alerts</h3>
+        <p>Star the ports you care about; idle favorites show a faint placeholder row, and a stranger taking the port lights a dot in the menu bar.</p>
+      </article>
+      <article class="feature">
+        <h3><span class="fno">05</span>Exposure</h3>
+        <p>Ports bound to <code>0.0.0.0</code> get an ochre "LAN" badge; an "exposed only" chip filters your attack surface in one click.</p>
+      </article>
+      <article class="feature">
+        <h3><span class="fno">06</span>Light &amp; native</h3>
+        <p>A native SwiftUI menu bar app of about 1 MB. Scans at launch; on failure it keeps the last snapshot and says so — it never pretends there are no ports.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="wrap gallery">
+    <figure>
+      <img src="assets/detail.png" alt="Detail inspector" loading="lazy">
+      <figcaption>Detail inspector: command line and resources on one page</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/settings.png" alt="Settings" loading="lazy">
+      <figcaption>Settings: interval / menu bar badge / launch at login</figcaption>
+    </figure>
+  </section>
+
+  <section id="install" class="wrap install">
+    <h2>Three steps in</h2>
+    <p class="install-lead">Recommended — one terminal command downloads the latest build into /Applications and sidesteps Gatekeeper entirely:</p>
+    <div class="cmd-box">
+      <code>curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash</code>
+    </div>
+    <ol class="steps">
+      <li><span>1</span><div class="step-text">or manually <a id="install-link" href="https://github.com/volcanicll/PortHawk/releases/latest">download the DMG</a> and drag PortHawk.app into Applications</div></li>
+      <li><span>2</span><div class="step-text">if macOS says the app is "damaged" or from an "unidentified developer": the binary is ad-hoc signed (not notarized). Run <code>xattr -cr /Applications/PortHawk.app</code> and open again</div></li>
+      <li><span>3</span><div class="step-text">a book icon and a port count appear in your menu bar — click and go</div></li>
+    </ol>
+    <p class="build-note">Prefer building from source? <code>git clone</code> then <code>./build.sh</code> — Command Line Tools is all you need.</p>
+  </section>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>PortHawk · 端口簿</span>
+      <span><a href="https://github.com/volcanicll/PortHawk" target="_blank" rel="noopener">GitHub</a> · <a href="https://github.com/volcanicll/PortHawk/releases" target="_blank" rel="noopener">All releases</a> · MIT License</span>
+      <span class="mono footer-deployed" id="deployed-note"></span>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -201,8 +201,11 @@ enum CLI {
 // MARK: - 视觉验证：模拟一版「有新占用、有告警、有划账」的账目状态
 
 enum PreviewRenderer {
+    /// 填充模拟账目；若真实扫描里有带项目归属的端口，用它顶替 mock 首行并返回其 id
+    /// （落地页的明细截图需要真实命令行/内存数据，mock PID 是编不出来的）。
+    @discardableResult
     @MainActor
-    static func fillMock(_ state: AppState, portMode: Bool = false) {
+    static func fillMock(_ state: AppState, portMode: Bool = false) -> String? {
         if portMode { state.viewMode = .port }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let lab = home + "/workspace/lab/"
@@ -233,6 +236,14 @@ enum PreviewRenderer {
         state.alertPorts = [5173]
         state.killingIds = ["8080-3344"]
         state.lastUpdated = Date()
+        // 落地页的明细截图要有真实内容：用真实扫描中带项目归属的端口顶替首行
+        var realId: String?
+        if let real = PortScanner.scan()?.first(where: { $0.project != nil && $0.pid > 0 }) {
+            state.entries[0] = real
+            state.entries = state.entries.sorted { $0.port < $1.port }
+            realId = real.id
+        }
+        return realId
     }
 
     @MainActor
@@ -266,9 +277,10 @@ enum PreviewWindow {
             defaults: mock ? UserDefaults(suiteName: "controlport.verify")! : .standard
         )
         if mock {
-            PreviewRenderer.fillMock(state, portMode: portMode)
+            let realId = PreviewRenderer.fillMock(state, portMode: portMode)
             if openDetail {
-                state.selectedId = "3000-8123"
+                // 选中真实条目（fillMock 已用真实端口顶替首行）
+                state.selectedId = realId ?? state.entries.first?.id
                 state.detailCPU = 12.4
             }
             if openSettings {

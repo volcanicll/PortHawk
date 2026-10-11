@@ -12,6 +12,8 @@
 curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash
 ```
 
+[English](README.en.md) · 中文
+
 ![面板总览](verify/panel.png)
 
 PortHawk 是一个原生 SwiftUI 菜单栏应用（`MenuBarExtra`），整个 App 是一个约 1 MB 的二进制，无 Electron、无运行时依赖。它把本机所有 TCP 监听端口记成一册账：端口号在左侧页码列，进程、所属项目、PID、路径在右；项目归属通过读取进程工作目录自动推断。
