@@ -248,6 +248,15 @@ final class AppState: ObservableObject {
         showNotice(text)
     }
 
+    /// 规范的粘贴板写入：先 clearContents 再 setString。
+    /// 直接 setString 时，粘贴板上残留的懒加载数据提供者可能让粘贴方拿到旧内容，
+    /// 表现就是「复制了但粘出来是旧的」；返回值让调用方能够提示真实结果。
+    func copyToPasteboard(_ text: String) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(text, forType: .string)
+    }
+
     // MARK: - 快照 diff 与派生数据
 
     /// 快照落账。fresh 为 nil 表示扫描失败：保留上一轮数据，只翻失败旗标。

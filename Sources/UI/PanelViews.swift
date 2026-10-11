@@ -340,11 +340,15 @@ private struct LedgerRow: View {
         .opacity(isPlaceholder ? 0.55 : (isKilling ? 0.55 : 1))
         .contextMenu {
             Button("复制端口号 \(entry.port)") {
-                NSPasteboard.general.setString(String(entry.port), forType: .string)
+                if state.copyToPasteboard(String(entry.port)) {
+                    state.flash("已复制端口 \(entry.port)")
+                }
             }
             if entry.pid > 0 {
                 Button("复制 PID \(entry.pid)") {
-                    NSPasteboard.general.setString(String(entry.pid), forType: .string)
+                    if state.copyToPasteboard(String(entry.pid)) {
+                        state.flash("已复制 PID \(entry.pid)")
+                    }
                 }
                 Divider()
                 Button("结束「\(entry.processName)」") {
@@ -585,6 +589,9 @@ private struct DetailView: View {
     @EnvironmentObject var state: AppState
     @State private var armedKill = false
     @State private var armedForce = false
+    /// 就地复制反馈："pid" / "port"；明细页盖住了主面板页脚，flash 看不见，反馈必须画在按钮上
+    @State private var copiedField: String?
+    @State private var copyFailed = false
 
     var body: some View {
         Group {
@@ -593,6 +600,14 @@ private struct DetailView: View {
                     .task(id: entry.id) {
                         armedKill = false
                         armedForce = false
+                        copiedField = nil
+                        copyFailed = false
+                    }
+                    .task(id: copiedField) {
+                        guard copiedField != nil else { return }
+                        try? await Task.sleep(nanoseconds: 1_400_000_000)
+                        copiedField = nil
+                        copyFailed = false
                     }
                     .task(id: armedKill) {
                         guard armedKill else { return }
@@ -726,13 +741,17 @@ private struct DetailView: View {
                     }
                 }
                 Spacer()
-                quietButton("复制 PID") {
-                    NSPasteboard.general.setString(String(entry.pid), forType: .string)
-                    state.flash("已复制 PID \(entry.pid)")
+                quietButton(
+                    copiedField == "pid" ? (copyFailed ? "✗ 失败" : "✓ 已复制") : "复制 PID",
+                    confirmed: copiedField == "pid", failed: copiedField == "pid" && copyFailed
+                ) {
+                    copyField("pid", String(entry.pid))
                 }
-                quietButton("复制端口") {
-                    NSPasteboard.general.setString(String(entry.port), forType: .string)
-                    state.flash("已复制端口 \(entry.port)")
+                quietButton(
+                    copiedField == "port" ? (copyFailed ? "✗ 失败" : "✓ 已复制") : "复制端口",
+                    confirmed: copiedField == "port", failed: copiedField == "port" && copyFailed
+                ) {
+                    copyField("port", String(entry.port))
                 }
             }
             .padding(.horizontal, 12)
@@ -791,17 +810,27 @@ private struct DetailView: View {
         .buttonStyle(.plain)
     }
 
+    private func copyField(_ key: String, _ text: String) {
+        if state.copyToPasteboard(text) {
+            copiedField = key
+            copyFailed = false
+        } else {
+            copiedField = key
+            copyFailed = true
+        }
+    }
+
     /// 中性操作（复制类）：淡墨字 + 横格线框，不占用朱砂的破坏性语义
-    private func quietButton(_ title: String, action: @escaping () -> Void) -> some View {
+    private func quietButton(_ title: String, confirmed: Bool = false, failed: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(Paper.body(11, .medium))
-                .foregroundStyle(Paper.inkSoft)
+                .foregroundStyle(failed ? Paper.vermilion : (confirmed ? Paper.blue : Paper.inkSoft))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .overlay(
                     RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(Paper.hairline, lineWidth: 1)
+                        .strokeBorder(failed ? Paper.vermilion.opacity(0.5) : (confirmed ? Paper.blue.opacity(0.5) : Paper.hairline), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -841,8 +870,9 @@ private struct FooterView: View {
                     .lineLimit(1)
                 if let command = state.deniedKillCommand {
                     Button {
-                        NSPasteboard.general.setString(command, forType: .string)
-                        state.flash("已复制，去终端执行")
+                        if state.copyToPasteboard(command) {
+                            state.flash("已复制，去终端执行")
+                        }
                     } label: {
                         Text("复制 sudo 命令")
                             .font(Paper.body(10, .medium))
