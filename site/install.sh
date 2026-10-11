@@ -20,12 +20,14 @@ trap 'rm -rf "$TMP"' EXIT
 curl -fL --retry 3 -o "$TMP/PortHawk.dmg" "$URL"
 
 echo "==> 挂载镜像…"
-hdiutil attach "$TMP/PortHawk.dmg" -nobrowse -quiet
-MOUNT=$(ls -d /Volumes/PortHawk* 2>/dev/null | head -1)
+# 不用 -quiet：解析本次挂载的精确卷路径。不能按 /Volumes/PortHawk* 通配——
+# 用户之前挂载过的旧卷会排在前面，导致装到旧版本。
+MOUNT=$(hdiutil attach "$TMP/PortHawk.dmg" -nobrowse | sed -n 's/.*\(\/Volumes\/.*\)$/\1/p' | tail -1)
 if [ -z "$MOUNT" ] || [ ! -d "$MOUNT/PortHawk.app" ]; then
   echo "!! 挂载失败，请手动打开 DMG 并把 PortHawk.app 拖入「应用程序」"
   exit 1
 fi
+echo "==> 挂载于 $MOUNT"
 
 echo "==> 安装到 /Applications/PortHawk.app …"
 rm -rf /Applications/PortHawk.app
