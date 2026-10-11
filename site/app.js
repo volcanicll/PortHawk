@@ -1,9 +1,13 @@
-// 版本号动态关联：页面每次加载都从 GitHub Releases 拉最新版本，
+// 版本号动态关联：页面每次加载都拉取最新 Release，
 // 应用发新版只需要打 tag 触发发布工作流，落地页无需重新部署。
-// API 失败（离线/限流）时回退到页面里写死的兜底版本。
+//
+// 版本获取链：Releases API（含发布日期与资产）→ releases.atom（github.com 域名，
+// 不受匿名 API 限流影响）→ 页面兜底版本。下载按钮用 releases/latest/download
+// 固定名直链，同样不依赖 API。
 (function () {
   var REPO = "volcanicll/PortHawk";
-  var FALLBACK_VERSION = "v0.1.0";
+  var FALLBACK_VERSION = "v0.1.2";
+  var LATEST_DMGE = "https://github.com/" + REPO + "/releases/latest/download/PortHawk-arm64.dmg";
 
   var versionEl = document.getElementById("release-version");
   var btnVerEl = document.getElementById("download-version");
@@ -11,13 +15,14 @@
   var installLink = document.getElementById("install-link");
   var metaEl = document.getElementById("release-meta");
 
-  function apply(version, assetUrl, publishedAt) {
+  downloadBtn.href = LATEST_DMGE;
+  if (installLink) installLink.href = LATEST_DMGE;
+  versionEl.textContent = FALLBACK_VERSION;
+  btnVerEl.textContent = FALLBACK_VERSION;
+
+  function apply(version, publishedAt) {
     versionEl.textContent = version;
     btnVerEl.textContent = version;
-    if (assetUrl) {
-      downloadBtn.href = assetUrl;
-      installLink.href = assetUrl;
-    }
     if (publishedAt) {
       var date = new Date(publishedAt);
       var text = date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
@@ -27,24 +32,29 @@
     }
   }
 
+  function versionFromAtom(xml) {
+    var match = xml.match(/releases\/tag\/(v[0-9][^<"\s]*)/);
+    return match ? match[1] : null;
+  }
+
+  // 主路径：Releases API（带发布日期）
   fetch("https://api.github.com/repos/" + REPO + "/releases/latest")
     .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
     .then(function (release) {
-      var version = release.tag_name || FALLBACK_VERSION;
-      // 优先给 arm64 DMG，其次 zip，最后退到 release 页
-      var assetUrl = null;
-      (release.assets || []).forEach(function (asset) {
-        if (/arm64\.dmg$/.test(asset.name)) assetUrl = asset.browser_download_url;
-      });
-      if (!assetUrl) {
-        (release.assets || []).forEach(function (asset) {
-          if (/arm64\.zip$/.test(asset.name)) assetUrl = asset.browser_download_url;
-        });
-      }
-      apply(version, assetUrl, release.published_at);
+      apply(release.tag_name || FALLBACK_VERSION, release.published_at);
       document.getElementById("deployed-note").textContent = "· 版本随 Releases 实时更新";
     })
     .catch(function () {
-      apply(FALLBACK_VERSION, null, null);
+      // 备路径：releases.atom 不走 api.github.com，基本不会被限流
+      fetch("https://github.com/" + REPO + "/releases.atom")
+        .then(function (res) { return res.ok ? res.text() : Promise.reject(res.status); })
+        .then(function (xml) {
+          var version = versionFromAtom(xml);
+          if (version) {
+            apply(version, null);
+            document.getElementById("deployed-note").textContent = "· 版本随 Releases 实时更新";
+          }
+        })
+        .catch(function () { /* 保持兜底版本 */ });
     });
 })();
