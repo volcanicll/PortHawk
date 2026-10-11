@@ -61,4 +61,6 @@ jobs:
             --title "PortHawk $GITHUB_REF_NAME" \
             --generate-notes \
             "PortHawk-$VERSION-arm64.dmg" \
-            "PortHawk-$VERSION-arm64.zip"
+            "PortHawk-$VERSION-arm64.zip" \
+            "PortHawk-arm64.dmg" \
+            "PortHawk-arm64.zip"
