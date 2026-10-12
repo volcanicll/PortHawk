@@ -1,19 +1,22 @@
 import SwiftUI
 
-/// 端口簿的纸面视觉体系：米白纸、墨字、蓝墨标注、朱砂批注。
-/// 三种墨色各司其职：蓝墨 = 信息与链接（项目标注、页签），朱砂 = 破坏性/告警，赭金 = 收藏。
+/// The ledger's paper visual system: warm paper, ink text, blue annotations,
+/// vermilion corrections. Each ink has one job: blue = information and links
+/// (project labels, tabs), vermilion = destructive/alert, ochre = favorites.
 enum Paper {
-    static let bg        = Color(red: 0.968, green: 0.952, blue: 0.913)  // 纸面 #F7F3E9
-    static let bgDeep    = Color(red: 0.936, green: 0.920, blue: 0.872)  // 深一度：悬停、页脚、分组带
-    static let ink       = Color(red: 0.122, green: 0.118, blue: 0.102)  // 墨 #1F1E1A
-    static let inkSoft   = Color(red: 0.435, green: 0.416, blue: 0.365)  // 淡墨
-    static let blue      = Color(red: 0.176, green: 0.294, blue: 0.435)  // 蓝墨 #2D4B6F
-    static let vermilion = Color(red: 0.639, green: 0.196, blue: 0.110)  // 朱砂 #A3321C
-    static let ochre     = Color(red: 0.588, green: 0.416, blue: 0.114)  // 赭金 #96 6A 1D
+    static let bg        = Color(red: 0.968, green: 0.952, blue: 0.913)  // paper #F7F3E9
+    static let bgDeep    = Color(red: 0.936, green: 0.920, blue: 0.872)  // one shade deeper: hover, footer, group band
+    static let ink       = Color(red: 0.122, green: 0.118, blue: 0.102)  // ink #1F1E1A
+    static let inkSoft   = Color(red: 0.435, green: 0.416, blue: 0.365)  // faded ink
+    static let blue      = Color(red: 0.176, green: 0.294, blue: 0.435)  // blue ink #2D4B6F
+    static let vermilion = Color(red: 0.639, green: 0.196, blue: 0.110)  // vermilion #A3321C
+    static let ochre     = Color(red: 0.588, green: 0.416, blue: 0.114)  // ochre #966A1D
     static let hairline  = ink.opacity(0.14)
 
-    static func songti(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom("Songti SC", size: size).weight(weight)
+    /// Titles use the system serif (New York) so the ledger look carries no
+    /// font-name dependency and stays Latin-native.
+    static func serif(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .serif)
     }
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
@@ -23,7 +26,7 @@ enum Paper {
     }
 }
 
-/// 细分隔线，账簿的横格。
+/// Hairline divider: the ledger's ruled line.
 struct Hairline: View {
     var body: some View {
         Rectangle()
@@ -32,7 +35,8 @@ struct Hairline: View {
     }
 }
 
-/// 印章式小标注：「新」「占」。方框单字，像账簿上的批注。
+/// Small seal-style tag ("new", "taken"). A boxed word, like a margin note.
+/// Sizes to its label so single characters and words both sit tight.
 struct SealMark: View {
     let character: String
     let color: Color
@@ -41,16 +45,19 @@ struct SealMark: View {
         Text(character)
             .font(Paper.body(9, .bold))
             .foregroundStyle(color)
-            .frame(width: 15, height: 15)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
             .overlay(
                 RoundedRectangle(cornerRadius: 2)
                     .strokeBorder(color.opacity(0.75), lineWidth: 1)
             )
+            .fixedSize()
     }
 }
 
-/// 自绘开关：系统 SwitchToggleStyle 在 macOS 26 上吃不到自定义 tint，
-/// 设计稿里的蓝墨轨道只能自己画。开=蓝墨轨道白旋钮，关=淡墨轨道。
+/// Hand-drawn switch: the system SwitchToggleStyle ignores a custom tint on
+/// recent macOS, so the blue-ink track from the design has to be drawn here.
+/// On = blue track with white knob, off = faded track.
 struct PaperToggle: View {
     @Binding var isOn: Bool
 

@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// 进程品牌目录：常见开发工具进程名 → (展示名, 品牌墨色)。
-/// 借鉴自 Pulse 的 dev-tool 品牌识别（二进制字符串证据中的品牌色表），
-/// 适配账簿视觉：色偏压暗，保证落在米白纸面上可读，太浅的品牌色一律加深。
+/// Process brand catalog: well-known dev-tool process names -> (label, brand
+/// ink color). Adapted from Pulse's dev-tool brand table (recovered from binary
+/// strings) to suit the ledger look: colors are darkened so they stay legible
+/// on the off-white paper, and anything too pale gets deepened.
 enum DevBrand {
     struct Brand {
         let label: String
@@ -17,9 +18,9 @@ enum DevBrand {
         )
     }
 
-    // 长键优先匹配：pythonw 在 python 之前、next-server 在 next 之前
+    // Longer keys are matched first: pythonw before python, next-server before next.
     private static let table: [(key: String, brand: Brand)] = [
-        // JS / Node 生态
+        // JS / Node ecosystem
         ("next-server", Brand(label: "Next.js", color: color(0x1F1F1F))),
         ("next", Brand(label: "Next.js", color: color(0x1F1F1F))),
         ("nuxt", Brand(label: "Nuxt", color: color(0x12A66F))),
@@ -52,14 +53,14 @@ enum DevBrand {
         ("jupyter", Brand(label: "Jupyter", color: color(0xE87D1E))),
         ("pytest", Brand(label: "Pytest", color: color(0x0A9EDC))),
 
-        // JVM / 系统语言
+        // JVM / systems languages
         ("java", Brand(label: "Java", color: color(0x5382A1))),
         ("javac", Brand(label: "Java", color: color(0x5382A1))),
         ("gradle", Brand(label: "Gradle", color: color(0x02303A))),
         ("kotlin", Brand(label: "Kotlin", color: color(0x7F52FF))),
         ("maven", Brand(label: "Maven", color: color(0xC71A36))),
 
-        // Go / Rust / 其它
+        // Go / Rust / others
         ("go", Brand(label: "Go", color: color(0x00ADD8))),
         ("gopls", Brand(label: "Go", color: color(0x00ADD8))),
         ("rustc", Brand(label: "Rust", color: color(0xB7410E))),
@@ -82,7 +83,7 @@ enum DevBrand {
         ("Rscript", Brand(label: "R", color: color(0x276DC3))),
         ("julia", Brand(label: "Julia", color: color(0x9558B2))),
 
-        // 数据库 / 中间件
+        // Databases / middleware
         ("redis-server", Brand(label: "Redis", color: color(0xC9382B))),
         ("redis-cli", Brand(label: "Redis", color: color(0xC9382B))),
         ("postgres", Brand(label: "PostgreSQL", color: color(0x336791))),
@@ -97,7 +98,7 @@ enum DevBrand {
         ("elasticsearch", Brand(label: "Elasticsearch", color: color(0x1BA9A0))),
         ("rabbitmq", Brand(label: "RabbitMQ", color: color(0xD96C1F))),
 
-        // 服务 / 基础设施
+        // Services / infrastructure
         ("nginx", Brand(label: "NGINX", color: color(0x009639))),
         ("caddy", Brand(label: "Caddy", color: color(0x2E9E8F))),
         ("traefik", Brand(label: "Traefik", color: color(0x24A1C1))),
@@ -120,7 +121,7 @@ enum DevBrand {
         ("mihomo", Brand(label: "mihomo", color: color(0x2A6FB0))),
         ("rclone", Brand(label: "Rclone", color: color(0x2E6E8E))),
 
-        // 编辑器 / AI 工具
+        // Editors / AI tools
         ("Code Helper", Brand(label: "VS Code", color: color(0x22A6F1))),
         ("Cursor", Brand(label: "Cursor", color: color(0x0175C2))),
         ("claude", Brand(label: "Claude", color: color(0xC96A4B))),
@@ -128,7 +129,7 @@ enum DevBrand {
         ("ollama", Brand(label: "Ollama", color: color(0xB8912A))),
         ("copilot", Brand(label: "Copilot", color: color(0x3E3E44))),
 
-        // 浏览器 / 系统
+        // Browsers / system
         ("Google Chrome", Brand(label: "Chrome", color: color(0x4285F4))),
         ("Google Chrome for Testing", Brand(label: "Chrome for Testing", color: color(0x4285F4))),
         ("chromium", Brand(label: "Chromium", color: color(0x4285F4))),
@@ -137,7 +138,8 @@ enum DevBrand {
         ("fastboot", Brand(label: "Android", color: color(0x2FAC5E))),
     ]
 
-    /// 按进程名匹配品牌。先精确匹配，再长前缀匹配（大小写不敏感）。
+    /// Match a process name to a brand: exact match first, then the longest
+    /// prefix match, case-insensitively.
     static func match(processName: String) -> Brand? {
         let name = processName.lowercased()
         guard !name.isEmpty else { return nil }
