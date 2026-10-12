@@ -1,33 +1,82 @@
 import Foundation
 import Darwin
 
-/// 一条监听记录：哪个进程（pid）在哪个端口监听、来自哪个项目。
+/// One listening record: which process (pid) listens on which port, and which
+/// project it belongs to.
 struct PortEntry: Identifiable, Equatable {
     let port: Int
     let pid: pid_t
     let processName: String
-    /// true = 监听 0.0.0.0 / * / [::]，局域网可达；false = 仅 127.0.0.1 / ::1
-    let isLanExposed: Bool
-    /// 由进程工作目录推断的项目名（目录 basename），系统进程为 nil
+    /// The address lsof reported for this listener: "*", "0.0.0.0", "127.0.0.1",
+    /// "[::1]", "192.168.1.5"… Kept verbatim so both the exposure verdict and
+    /// the browser target are derived from what is actually bound, rather than
+    /// from a stored flag that could drift out of step with it.
+    let host: String
+    /// Project name (directory basename) inferred from the process working
+    /// directory; nil for system processes.
     let project: String?
     let projectPath: String?
 
     var id: String { "\(port)-\(pid)" }
-    var scopeText: String { isLanExposed ? "对外" : "本机" }
+
+    /// true = reachable from outside this process (wildcard or a specific
+    /// interface address); false = loopback only.
+    var isLanExposed: Bool { PortScanner.isExposed(host: host) }
+    var scopeText: String { isLanExposed ? "LAN" : "local" }
+
+    /// Host to hand a browser. A wildcard bind is also reachable on loopback, so
+    /// 127.0.0.1 is the target that always works; a listener bound to one
+    /// specific interface address is only reachable there. An IPv6 literal keeps
+    /// its brackets, as URLs require.
+    var browseHost: String {
+        let h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if h.isEmpty || h == "*" || h == "0.0.0.0" || h == "::" { return "127.0.0.1" }
+        if h == "::1" { return "[::1]" }
+        return h.contains(":") ? "[\(h)]" : h
+    }
+
+    /// Ports where TLS is a safe assumption, so the browser is not pointed at a
+    /// plaintext URL in front of an HTTPS listener.
+    private static let tlsPorts: Set<Int> = [443, 8443, 9443]
+
+    /// Where to open this listener. nil for placeholder rows (no process) and
+    /// for anything that is not a real port.
+    var browseURL: URL? {
+        guard pid > 0, port > 0, port <= 65535 else { return nil }
+        let scheme = Self.tlsPorts.contains(port) ? "https" : "http"
+        return URL(string: "\(scheme)://\(browseHost):\(port)/")
+    }
 }
 
 enum PortScanner {
-    /// 执行 lsof 扫描全部 TCP LISTEN，并附上每个进程的工作目录。
-    /// 返回 nil 表示扫描失败（启动失败/超时），调用方应保留上一轮数据；
-    /// 空数组才是「扫描成功、确实没有监听端口」。
+    /// Scan every TCP listener via lsof and attach each process's working directory.
+    /// Returns nil when the scan itself failed (spawn failure / timeout), in which
+    /// case callers must keep the previous snapshot; an empty array means the scan
+    /// succeeded and there is genuinely nothing listening.
     static func scan() -> [PortEntry]? {
         guard let output = runLsof() else { return nil }
-        var seen = Set<String>()
+        return parseAll(output)
+    }
+
+    /// Parse a full lsof table into entries, collapsing IPv4/IPv6 dual-stack
+    /// duplicates. Split out from `scan()` so the parsing rules are testable
+    /// without spawning a process.
+    static func parseAll(_ output: String) -> [PortEntry] {
+        var indexByID: [String: Int] = [:]
         var entries: [PortEntry] = []
         for line in output.split(separator: "\n").dropFirst() {
             guard let entry = parse(String(line)) else { continue }
-            // IPv4/IPv6 双栈会让同一 (port, pid) 出现两次，只保留一条
-            guard seen.insert(entry.id).inserted else { continue }
+            if let existing = indexByID[entry.id] {
+                // Dual-stack: one (port, pid) can listen on loopback and on a
+                // wildcard address at once. Keep the widest exposure, otherwise a
+                // LAN-reachable socket is masked whenever lsof happens to print
+                // the 127.0.0.1 row first.
+                if entry.isLanExposed && !entries[existing].isLanExposed {
+                    entries[existing] = entry
+                }
+                continue
+            }
+            indexByID[entry.id] = entries.count
             entries.append(entry)
         }
         return entries
@@ -41,7 +90,7 @@ enum PortScanner {
         Darwin.kill(pid, 0) == 0
     }
 
-    // MARK: - 明细页数据（借鉴 Pulse 的 inspector 钻取模式）
+    // MARK: - Detail data
 
     struct ProcessDetail {
         let commandLine: [String]?
@@ -49,13 +98,14 @@ enum PortScanner {
         let parentPID: pid_t?
         let residentBytes: UInt64?
         let threadCount: Int32?
-        /// 进程自启动以来累计的 CPU 时间（秒）
+        /// CPU time accumulated since process start, in seconds.
         let cpuSeconds: Double?
-        /// 可执行文件路径（argv[0]，跨用户进程可能拿不到）
+        /// Executable path (argv[0]); unavailable for other users' processes.
         let executablePath: String?
     }
 
-    /// 一次性取齐明细页需要的数据；任一项拿不到就置 nil（跨用户进程常见）。
+    /// Collect everything the detail page needs in one pass. Any field that
+    /// cannot be read becomes nil, which is common for other users' processes.
     static func detail(for pid: pid_t) -> ProcessDetail {
         let commandLine = commandLine(for: pid)
         let taskInfo = taskInfo(for: pid)
@@ -70,7 +120,7 @@ enum PortScanner {
         )
     }
 
-    /// 当前瞬时 CPU 时间采样（秒），配合上次采样差值算 CPU%
+    /// Instantaneous CPU-time sample (seconds); diff two samples to get CPU%.
     static func cpuSecondsSnapshot(for pid: pid_t) -> Double? {
         taskInfo(for: pid)?.cpuSeconds
     }
@@ -106,7 +156,7 @@ enum PortScanner {
         return String(cString: name)
     }
 
-    /// 完整命令行：sysctl KERN_PROCARGS2 → [argc][exec_path][填充 NUL][argv…][env…]
+    /// Full command line: sysctl KERN_PROCARGS2 -> [argc][exec_path][NUL padding][argv…][env…]
     static func commandLine(for pid: pid_t) -> [String]? {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size: size_t = 0
@@ -117,7 +167,8 @@ enum PortScanner {
         let argc = buffer.withUnsafeBytes { $0.load(as: UInt32.self) }
         guard argc > 0, argc < 4096 else { return nil }
 
-        // 布局：argc 后是 NUL 结尾的 exec_path、若干对齐 NUL、然后是完整 argv 字符串序列
+        // Layout: argc, then NUL-terminated exec_path, some alignment NULs, then
+        // the argv strings back to back.
         var strings: [String] = []
         var index = MemoryLayout<UInt32>.size
         while index < size, strings.count < Int(argc) {
@@ -135,14 +186,16 @@ enum PortScanner {
     private static func runLsof(timeout: TimeInterval = 3) -> String? {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        // -n -P -l：不做主机名/端口名/用户名反查，保证毫秒级返回；+c0 输出完整进程名
+        // -n -P -l: no host/port/user lookups, so it returns in milliseconds;
+        // +c0 prints full process names.
         task.arguments = ["-iTCP", "-sTCP:LISTEN", "-n", "-P", "-l", "+c0"]
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = FileHandle.nullDevice
         do { try task.run() } catch { return nil }
 
-        // 后台读输出，信号量限时等待：lsof 卡死（fd 爆炸）时不能拖停刷新
+        // Read on a background queue and wait with a timeout: a wedged lsof
+        // (exploding fd table) must not stall the refresh loop.
         let semaphore = DispatchSemaphore(value: 0)
         var output: String?
         DispatchQueue.global(qos: .userInitiated).async {
@@ -159,8 +212,9 @@ enum PortScanner {
         return output
     }
 
-    /// lsof 行格式：COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME。
-    /// COMMAND 可能含空格（+c0），所以按「纯数字 PID + 字母结尾 FD」定位列起点。
+    /// lsof row layout: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME.
+    /// COMMAND may contain spaces (we pass +c0), so locate the columns by
+    /// finding a numeric PID immediately followed by an FD like "12u".
     static func parse(_ line: String) -> PortEntry? {
         let tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         guard tokens.count >= 9 else { return nil }
@@ -185,20 +239,32 @@ enum PortScanner {
         guard let colon = name.lastIndex(of: ":"),
               let port = Int(name[name.index(after: colon)...]), port > 0 else { return nil }
         let host = String(name[..<colon])
-        let exposed = host == "*" || host == "0.0.0.0" || host == "[::]" || host == "::"
 
         let cwd = workingDirectory(for: pid)
         return PortEntry(
             port: port,
             pid: pid,
             processName: command,
-            isLanExposed: exposed,
+            host: host,
             project: cwd.flatMap(projectName),
             projectPath: cwd
         )
     }
 
-    /// 用 proc_pidinfo 读进程工作目录，比派生子进程（lsof -p）快得多。
+    /// Anything that is not loopback is reachable from outside this process.
+    /// Treating it that way (rather than whitelisting `*` / `0.0.0.0`) means a
+    /// listener bound to a specific interface address such as 192.168.1.5 is
+    /// reported as exposed instead of being silently filed under "local".
+    static func isExposed(host: String) -> Bool {
+        let h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        if h.isEmpty || h == "*" || h == "::" { return true }
+        if h == "localhost" || h == "::1" { return false }
+        if h.hasPrefix("127.") { return false }
+        return true
+    }
+
+    /// Read a process working directory via proc_pidinfo; far cheaper than
+    /// spawning `lsof -p`.
     static func workingDirectory(for pid: pid_t) -> String? {
         var info = proc_vnodepathinfo()
         let size = Int32(MemoryLayout<proc_vnodepathinfo>.stride)
@@ -219,9 +285,10 @@ enum PortScanner {
         return path
     }
 
-    /// 只有「像项目目录」的工作目录才推断为项目；系统守护进程、/tmp 等一律归入系统组。
+    /// Only directories that look like projects are inferred as such; system
+    /// daemons and paths like /tmp all fall into the system group.
     static func isProjectPath(_ path: String) -> Bool {
-        // 先解软链接：/tmp 实际是 /private/tmp，/var 实际是 /private/var
+        // Resolve symlinks first: /tmp is really /private/tmp, /var is /private/var.
         let canonical = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
         let excludedPrefixes = [
             "/System", "/usr", "/private/var", "/private/tmp", "/var", "/tmp",
@@ -233,29 +300,57 @@ enum PortScanner {
         return true
     }
 
-    /// lsof 会把命令名中的空格等字符转义成 \x20，这里还原。
+    /// lsof escapes spaces and other characters in command names: `\x20` for a
+    /// space, `\xNN` for non-printables, `\\` for a literal backslash.
+    /// An unrecognized `\X` sequence keeps both characters rather than dropping
+    /// the escaped one.
     static func unescape(_ s: String) -> String {
+        let chars = Array(s)
         var result = ""
-        var iterator = s.makeIterator()
-        while let ch = iterator.next() {
-            if ch == "\\", let x = iterator.next(), x == "x" {
+        var i = 0
+        while i < chars.count {
+            guard chars[i] == "\\" else {
+                result.append(chars[i])
+                i += 1
+                continue
+            }
+            guard i + 1 < chars.count else {
+                // Trailing backslash: nothing to escape.
+                result.append(chars[i])
+                break
+            }
+            let next = chars[i + 1]
+            if next == "x" {
+                // Look ahead without consuming, so a non-hex character is not
+                // swallowed when the escape turns out to be malformed.
                 var hex = ""
-                for _ in 0..<2 {
-                    if let h = iterator.next() { hex.append(h) }
+                var j = i + 2
+                while j < chars.count, hex.count < 2, chars[j].isHexDigit {
+                    hex.append(chars[j])
+                    j += 1
                 }
-                if let byte = UInt8(hex, radix: 16) {
+                if hex.count == 2, let byte = UInt8(hex, radix: 16) {
                     result.append(Character(Unicode.Scalar(byte)))
-                    continue
+                    i = j
+                } else {
+                    result.append("\\x" + hex)
+                    i = j
                 }
-                result.append("\\x" + hex)
+            } else if next == "\\" {
+                result.append("\\")
+                i += 2
             } else {
-                result.append(ch)
+                // Not an escape we know: keep the backslash and the character.
+                result.append(chars[i])
+                result.append(next)
+                i += 2
             }
         }
         return result
     }
 
     static func projectName(_ path: String) -> String? {
+        guard !path.isEmpty else { return nil }
         let base = URL(fileURLWithPath: path).lastPathComponent
         return base.isEmpty ? nil : base
     }

@@ -1,138 +1,128 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PortHawk · 端口簿 — macOS 菜单栏的端口账簿</title>
-  <meta name="description" content="PortHawk 是常驻 macOS 菜单栏的端口账簿：什么应用占了什么端口、什么项目用了什么端口，一眼可查。原生 SwiftUI，约 1 MB。">
+  <title>PortHawk — the port ledger in your macOS menu bar</title>
+  <meta name="description" content="PortHawk is a port ledger living in your macOS menu bar: which app owns which port, which project runs which port, and what the LAN can reach. Native SwiftUI, about 1 MB.">
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="assets/icon.png">
 </head>
 <body>
 
-  <!-- 顶部：书名 + 源码 -->
+  <!-- Fixed top bar -->
   <header class="topbar">
-    <div class="wrap topbar-inner">
-      <span class="brand">PortHawk <span class="brand-zh">端口簿</span></span>
+    <div class="topbar-inner">
+      <span class="brand">PortHawk</span>
       <nav>
-        <a href="#features">功能</a>
-        <a href="#install">安装</a>
-        <a href="https://github.com/volcanicll/PortHawk" target="_blank" rel="noopener">源码</a>
-        <a href="index-en.html" title="Switch to English">EN</a>
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/volcanicll/PortHawk" target="_blank" rel="noopener">Source</a>
       </nav>
     </div>
   </header>
 
-  <!-- 主视觉 -->
-  <section class="hero wrap">
-    <p class="eyebrow">macOS · menu bar · native SwiftUI</p>
-    <h1>什么占了端口，什么起了项目，<br>一册账看清。</h1>
-    <p class="sub">
-      PortHawk 是常驻菜单栏的端口账簿：谁在监听、属于哪个项目、会不会被局域网看到，
-      3 秒一刷，一眼见底。整个应用约 1 MB，无 Electron、无后台守护。
-    </p>
-    <div class="hero-actions">
-      <a id="download-btn" class="btn btn-primary" href="https://github.com/volcanicll/PortHawk/releases/latest">
-        下载 PortHawk <span class="btn-ver" id="download-version"></span>
-      </a>
-      <a class="btn btn-ghost" href="https://github.com/volcanicll/PortHawk#readme">构建与文档</a>
+  <!-- One fixed stage. Copy scenes cross-fade in the left column while the
+       device on the right persists, so the app UI is on screen the whole time. -->
+  <main id="stage">
+
+    <div id="scenes">
+      <section class="scene is-active" data-scene="hero">
+        <p class="eyebrow">macOS · menu bar · native SwiftUI</p>
+        <h1>Every listening port,<br>on one ledger page.</h1>
+        <p class="sub">
+          PortHawk keeps a ledger of every TCP listening port on your Mac: who is listening,
+          which project it belongs to, and whether the LAN can reach it. Native SwiftUI,
+          about 1 MB, no Electron.
+        </p>
+        <div class="hero-actions">
+          <a id="download-btn" class="btn btn-primary" href="https://github.com/volcanicll/PortHawk/releases/latest">
+            Download <span class="btn-ver" id="download-version"></span>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/volcanicll/PortHawk#readme">Docs</a>
+        </div>
+        <p class="hero-meta" id="release-meta">
+          Latest <span class="mono" id="release-version">v0.1.2</span> · macOS 13+ · Apple Silicon
+        </p>
+      </section>
+
+      <section class="scene" data-scene="arrive">
+        <span class="fno">01</span>
+        <h2>Ports arrive as they open</h2>
+        <p>Every TCP listener lands in the ledger with its process, PID, and owning project — inferred from the process's working directory, so dev servers stop being anonymous.</p>
+      </section>
+
+      <section class="scene" data-scene="favorite">
+        <span class="fno">02</span>
+        <h2>Favorites keep their place</h2>
+        <p>Star the ports you care about. An idle favorite still shows a faint placeholder row, so a service that quietly died is obvious at a glance.</p>
+      </section>
+
+      <section class="scene" data-scene="end">
+        <span class="fno">03</span>
+        <h2>End a process in two steps</h2>
+        <p>Hover for "end"; the first click arms a solid confirm, the second sends the signal. The row is struck through with a vermilion line, like ink cancelling a ledger entry.</p>
+      </section>
+
+      <section class="scene" data-scene="alert">
+        <span class="fno">04</span>
+        <h2>Know when a port is taken</h2>
+        <p>When something new grabs a port you favorited, the menu bar lights a dot and the row gets a "taken" seal. New listeners get a blue "new" seal.</p>
+      </section>
+
+      <section class="scene" data-scene="filter">
+        <span class="fno">05</span>
+        <h2>See your attack surface</h2>
+        <p>Anything not bound to loopback gets an ochre "LAN" badge — wildcards and specific interface addresses alike. The "LAN only" chip filters the ledger to what the network can reach.</p>
+      </section>
+
+      <section class="scene" data-scene="detail">
+        <span class="fno">06</span>
+        <h2>Drill into any row</h2>
+        <p>A full page per process: complete command line, executable path, working directory, user, threads, memory, and live CPU%. Open the port in your browser, copy its PID or port, or end the process — all from here.</p>
+      </section>
+
+      <section class="scene" data-scene="settings">
+        <span class="fno">07</span>
+        <h2>Small, quiet, out of the way</h2>
+        <p>Refresh interval, menu bar count, launch at login. If a scan ever fails it keeps the last snapshot and says so — it never pretends there are no ports.</p>
+      </section>
+
+      <section class="scene" data-scene="install">
+        <div class="install-inner">
+          <h2>Install</h2>
+          <p class="install-lead">One terminal command downloads the latest build into <code>/Applications</code> and sidesteps Gatekeeper entirely:</p>
+          <div class="cmd-box">
+            <code>curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash</code>
+          </div>
+          <p class="build-note">
+            Or <a id="install-link" href="https://github.com/volcanicll/PortHawk/releases/latest">download the DMG</a> and drag it in.
+            Building from source needs only Command Line Tools: <code>git clone</code>, then <code>./build.sh</code>.
+          </p>
+          <p class="fineprint">
+            Ad-hoc signed, not notarized — if macOS reports it as damaged, run
+            <code>xattr -cr /Applications/PortHawk.app</code>.
+            <span class="mono" id="deployed-note"></span>
+          </p>
+        </div>
+      </section>
     </div>
-    <p class="hero-meta" id="release-meta">
-      最新版本 <span class="mono" id="release-version">v0.1.2</span> · macOS 13+
-    </p>
-  </section>
 
-  <!-- 装饰账簿：三行示例 -->
-  <section class="wrap ledger-demo" aria-hidden="true">
-    <div class="demo-card">
-      <div class="demo-row">
-        <span class="demo-port">3000</span>
-        <span class="demo-name"><i class="dot dot-green"></i>node <em>「PortHawk」</em></span>
-        <span class="demo-badge">对外</span>
-      </div>
-      <div class="demo-row">
-        <span class="demo-port">5173</span>
-        <span class="demo-name"><i class="dot dot-blue"></i>node <em>「frontend-lab-website」</em></span>
-        <span class="demo-badge">本机</span>
-      </div>
-      <div class="demo-row">
-        <span class="demo-port">5432</span>
-        <span class="demo-name"><i class="dot dot-blue"></i>postgres <em>系统进程</em></span>
-        <span class="demo-badge">本机</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- 主截图 -->
-  <section class="wrap screenshot">
-    <img src="assets/panel.png" alt="PortHawk 账簿面板截图" loading="lazy">
-  </section>
-
-  <!-- 功能 -->
-  <section id="features" class="wrap features">
-    <h2>账簿的六种笔法</h2>
-    <div class="feature-grid">
-      <article class="feature">
-        <h3><span class="fno">01</span>项目归属</h3>
-        <p>读取进程工作目录自动推断项目，「按项目 / 按端口」两种视图切换，开发服务器不再是无名之辈。</p>
-      </article>
-      <article class="feature">
-        <h3><span class="fno">02</span>明细钻取</h3>
-        <p>点开任意一行：完整命令行、可执行路径、用户、线程、内存与实时 CPU%，尽在一页。</p>
-      </article>
-      <article class="feature">
-        <h3><span class="fno">03</span>红笔销账</h3>
-        <p>悬停即出「结束」，两步确认防误触；结束中的行被一道朱砂线划掉，像账簿上的批注。</p>
-      </article>
-      <article class="feature">
-        <h3><span class="fno">04</span>收藏与告警</h3>
-        <p>常用端口点星收藏；空闲时显示淡墨占位行，被陌生进程占走时菜单栏亮圆点、行盖「占」印。</p>
-      </article>
-      <article class="feature">
-        <h3><span class="fno">05</span>暴露面</h3>
-        <p>监听 <code>0.0.0.0</code> 的端口标赭色「对外」，「仅对外」一键过滤，局域网可达的服务无处藏身。</p>
-      </article>
-      <article class="feature">
-        <h3><span class="fno">06</span>轻量原生</h3>
-        <p>原生 SwiftUI 菜单栏应用，约 1 MB 二进制；启动即扫描，失败保留旧账，绝不假装没有端口。</p>
-      </article>
-    </div>
-  </section>
-
-  <!-- 更多截图 -->
-  <section class="wrap gallery">
-    <figure>
-      <img src="assets/detail.png" alt="进程详情页" loading="lazy">
-      <figcaption>进程详情：一页看清命令行与资源</figcaption>
+    <!-- Persistent device: plays the real UI and seeks to the segment that
+         matches whichever scene is on screen. -->
+    <figure class="device">
+      <video id="demo" muted playsinline autoplay loop preload="auto"
+             poster="assets/panel-poster.png"
+             aria-label="PortHawk panel: ports arriving, a favorite placeholder, ending a process, an alert, the LAN filter, and the detail page">
+        <source src="assets/panel.mp4" type="video/mp4">
+      </video>
     </figure>
-    <figure>
-      <img src="assets/settings.png" alt="设置页" loading="lazy">
-      <figcaption>设置：刷新间隔 / 菜单栏徽标 / 登录自启</figcaption>
-    </figure>
-  </section>
 
-  <!-- 安装 -->
-  <section id="install" class="wrap install">
-    <h2>三步入账</h2>
-    <p class="install-lead">推荐终端一条命令——自动下载最新版装入「应用程序」，无需理会 Gatekeeper：</p>
-    <div class="cmd-box">
-      <code>curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash</code>
-    </div>
-    <ol class="steps">
-      <li><span>1</span><div class="step-text">或手动 <a id="install-link" href="https://github.com/volcanicll/PortHawk/releases/latest">下载 DMG</a>，把 PortHawk.app 拖入「应用程序」</div></li>
-      <li><span>2</span><div class="step-text">首次打开若提示「已损坏 / 无法验证开发者」：应用为临时签名（未公证），终端执行 <code>xattr -cr /Applications/PortHawk.app</code> 再打开</div></li>
-      <li><span>3</span><div class="step-text">菜单栏出现书本图标与端口计数，点开即用</div></li>
-    </ol>
-    <p class="build-note">喜欢源码构建？<code>git clone</code> 后执行 <code>./build.sh</code>，只需要 Command Line Tools。</p>
-  </section>
+    <!-- Chapter rail: click to jump, and it tracks the active scene. -->
+    <nav id="rail" aria-label="Demo chapters"></nav>
 
-  <footer class="footer">
-    <div class="wrap footer-inner">
-      <span>PortHawk · 端口簿</span>
-      <span><a href="https://github.com/volcanicll/PortHawk" target="_blank" rel="noopener">GitHub</a> · <a href="https://github.com/volcanicll/PortHawk/releases" target="_blank" rel="noopener">全部版本</a> · MIT License</span>
-      <span class="mono footer-deployed" id="deployed-note"></span>
-    </div>
-  </footer>
+    <p id="hint" aria-hidden="true">scroll</p>
+  </main>
 
   <script src="app.js"></script>
 </body>

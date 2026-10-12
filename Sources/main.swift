@@ -1,13 +1,25 @@
 import SwiftUI
 import AppKit
 
-// 入口分发：--cli 调试数据层，--render-preview 导出面板截图，--preview 开浮动预览窗，
-// 无参数时作为菜单栏应用常驻。
+// Entry dispatch: --cli for the data layer, --selftest for the assertion suite,
+// --render-preview to export a panel image, --preview for a floating window,
+// and the menu bar app when launched with no arguments.
 
 let arguments = CommandLine.arguments
 
 if arguments.contains("--cli") {
     CLI.run()
+} else if arguments.contains("--selftest") {
+    SelfTest.run()
+} else if let idx = arguments.firstIndex(of: "--render-frames"), idx + 1 < arguments.count {
+    let dir = arguments[idx + 1]
+    let scale = arguments.firstIndex(of: "--scale").flatMap { i in
+        i + 1 < arguments.count ? Double(arguments[i + 1]) : nil
+    } ?? 2
+    MainActor.assumeIsolated {
+        FrameRenderer.render(to: dir, scale: CGFloat(scale))
+    }
+    exit(0)
 } else if let idx = arguments.firstIndex(of: "--render-preview"), idx + 1 < arguments.count {
     MainActor.assumeIsolated {
         PreviewRenderer.render(to: arguments[idx + 1])
@@ -55,7 +67,7 @@ if arguments.contains("--cli") {
         NSGraphicsContext.restoreGraphicsState()
         if let png = rep.representation(using: .png, properties: [:]) {
             try? png.write(to: URL(fileURLWithPath: arguments[idx + 1]))
-            print("icon rendered → \(arguments[idx + 1])")
+            print("icon rendered -> \(arguments[idx + 1])")
         }
     }
     exit(0)
@@ -67,11 +79,12 @@ if arguments.contains("--cli") {
     ControlPortApp.main()
 }
 
-// MARK: - 菜单栏应用
+// MARK: - Menu bar app
 
-/// 菜单栏标签自绘成一张 template NSImage。
-/// MenuBarExtra 对复合视图标签（HStack/overlay）的渲染不可靠——数字和圆点都会丢，
-/// 单张位图是唯一稳定的画法；isTemplate 保证跟随系统浅色/深色菜单栏。
+/// The menu bar label is drawn into a single template NSImage.
+/// MenuBarExtra renders composite labels (HStack/overlay) unreliably — the count
+/// and the dot both get dropped — so a bitmap is the only stable approach;
+/// isTemplate keeps it in step with the light/dark menu bar.
 enum MenuBarIconRenderer {
     private static let lock = NSLock()
     private static var cache: [String: NSImage] = [:]
@@ -101,7 +114,8 @@ enum MenuBarIconRenderer {
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
             let symbolY = (height - symbolSize.height) / 2
             symbol.draw(in: NSRect(x: 0, y: symbolY, width: symbolSize.width, height: symbolSize.height))
-            // 告警圆点画进位图：菜单栏里 overlay 是渲染不出来的
+            // The alert dot goes into the bitmap: overlays do not render in the
+            // menu bar.
             if alert {
                 NSColor.black.setFill()
                 NSBezierPath(ovalIn: NSRect(x: symbolSize.width - 3, y: height - 5.5, width: 4, height: 4)).fill()
@@ -115,7 +129,7 @@ enum MenuBarIconRenderer {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "PortHawk，当前 \(count) 个监听端口"
+        image.accessibilityDescription = "PortHawk, \(count) listening ports"
         return image
     }
 }
@@ -138,7 +152,7 @@ struct ControlPortApp: App {
     }
 }
 
-// MARK: - CLI（数据层自检 / 远程调试用）
+// MARK: - CLI (data-layer self check / remote debugging)
 
 enum CLI {
     static func run() {
@@ -148,7 +162,7 @@ enum CLI {
             killPort(port)
         }
         guard let entries = PortScanner.scan() else {
-            print("lsof 扫描失败")
+            print("lsof scan failed")
             exit(1)
         }
         printTable(entries.sorted { $0.port < $1.port })
@@ -157,21 +171,21 @@ enum CLI {
 
     private static func killPort(_ port: Int) {
         guard let all = PortScanner.scan() else {
-            print("lsof 扫描失败")
+            print("lsof scan failed")
             return
         }
         let targets = all.filter { $0.port == port }
         guard !targets.isEmpty else {
-            print("端口 \(port) 当前没有监听进程")
+            print("nothing is listening on port \(port)")
             return
         }
         for entry in targets {
-            print("TERM  → pid=\(entry.pid) \(entry.processName)")
+            print("TERM  -> pid=\(entry.pid) \(entry.processName)")
             _ = PortScanner.kill(pid: entry.pid, force: false)
         }
         Thread.sleep(forTimeInterval: 1.6)
         for entry in targets where PortScanner.isAlive(entry.pid) {
-            print("KILL  → pid=\(entry.pid)（TERM 未退出）")
+            print("KILL  -> pid=\(entry.pid) (TERM did not take)")
             _ = PortScanner.kill(pid: entry.pid, force: true)
         }
         Thread.sleep(forTimeInterval: 0.3)
@@ -181,74 +195,114 @@ enum CLI {
         print("PORT   SCOPE PID     PROCESS                 PROJECT")
         for e in entries {
             let port = pad(String(e.port), 7)
-            let scope = pad(e.scopeText + (e.scopeText == "对外" ? " " : "  "), 6)
+            let scope = pad(e.scopeText, 6)
             let pid = pad(String(e.pid), 8)
             print("\(port)\(scope)\(pid)\(pad(e.processName, 24))\(e.project ?? "-")")
         }
         let projects = Set(entries.compactMap(\.project))
-        print("\n共 \(entries.count) 个监听端口 · \(projects.count) 个项目")
+        print("\n\(entries.count) listening ports · \(projects.count) projects")
     }
 
     private static func pad(_ s: String, _ width: Int) -> String {
-        var count = 0
-        for ch in s {
-            count += ch.unicodeScalars.first.map { $0.properties.isIdeographic || $0.value > 0x2E80 } == true ? 2 : 1
-        }
-        return s + String(repeating: " ", count: max(0, width - count))
+        s + String(repeating: " ", count: max(0, width - s.count))
     }
 }
 
-// MARK: - 视觉验证：模拟一版「有新占用、有告警、有划账」的账目状态
+// MARK: - Visual verification fixtures
 
 enum PreviewRenderer {
-    /// 填充模拟账目；若真实扫描里有带项目归属的端口，用它顶替 mock 首行并返回其 id
-    /// （落地页的明细截图需要真实命令行/内存数据，mock PID 是编不出来的）。
+    /// Fill the panel with a mock ledger: new ports, an alert, a struck-through
+    /// row, a favorite placeholder and an armed kill button.
+    ///
+    /// The mock PIDs do not exist, so `PortScanner.detail` returns nil for every
+    /// field and the detail page would render as a column of dashes. When the
+    /// real scan finds a listening process that belongs to a project, it is
+    /// swapped in so the detail screenshot shows genuine command-line, memory
+    /// and thread data; any mock entry sharing that port is dropped first so the
+    /// ledger never shows the same port twice.
     @discardableResult
     @MainActor
     static func fillMock(_ state: AppState, portMode: Bool = false) -> String? {
         if portMode { state.viewMode = .port }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let lab = home + "/workspace/lab/"
-        let mock: [PortEntry] = [
-            PortEntry(port: 3000, pid: 8123, processName: "node", isLanExposed: true,
-                      project: "controlPort", projectPath: lab + "controlPort"),
-            PortEntry(port: 5173, pid: 9021, processName: "node", isLanExposed: false,
+        let lab = home + "/workspace/"
+        var mock: [PortEntry] = [
+            PortEntry(port: 3000, pid: 8123, processName: "node", host: "0.0.0.0",
+                      project: "PortHawk", projectPath: lab + "PortHawk"),
+            PortEntry(port: 5173, pid: 9021, processName: "node", host: "127.0.0.1",
                       project: "frontend-lab-website", projectPath: lab + "frontend-lab-website"),
-            PortEntry(port: 8000, pid: 4555, processName: "python3", isLanExposed: false,
+            PortEntry(port: 8000, pid: 4555, processName: "python3", host: "127.0.0.1",
                       project: "ai-notes", projectPath: home + "/workspace/ai-notes"),
-            PortEntry(port: 8080, pid: 3344, processName: "java", isLanExposed: true,
+            PortEntry(port: 8080, pid: 3344, processName: "java", host: "0.0.0.0",
                       project: "gateway-service", projectPath: home + "/workspace/work/gateway-service"),
-            PortEntry(port: 9229, pid: 8123, processName: "node", isLanExposed: false,
-                      project: "controlPort", projectPath: lab + "controlPort"),
-            PortEntry(port: 5432, pid: 778, processName: "postgres", isLanExposed: false,
+            PortEntry(port: 9229, pid: 8123, processName: "node", host: "127.0.0.1",
+                      project: "PortHawk", projectPath: lab + "PortHawk"),
+            PortEntry(port: 5432, pid: 778, processName: "postgres", host: "127.0.0.1",
                       project: nil, projectPath: nil),
-            PortEntry(port: 6379, pid: 779, processName: "redis-server", isLanExposed: false,
+            PortEntry(port: 6379, pid: 779, processName: "redis-server", host: "127.0.0.1",
                       project: nil, projectPath: nil),
-            PortEntry(port: 49152, pid: 410, processName: "rapportd", isLanExposed: true,
+            PortEntry(port: 49152, pid: 410, processName: "rapportd", host: "0.0.0.0",
                       project: nil, projectPath: nil),
         ]
-        state.entries = mock
-        // 4747 未被占用：验证「收藏占位行」
+        var realId: String?
+        if let real = PortScanner.scan()?.first(where: { $0.project != nil && $0.pid > 0 }) {
+            mock.removeAll { $0.port == real.port }
+            mock.append(real)
+            realId = real.id
+        }
+        state.entries = mock.sorted { $0.port != $1.port ? $0.port < $1.port : $0.pid < $1.pid }
+        // 4747 is free: demonstrates the favorite placeholder row.
         state.favorites = [3000, 5173, 4747]
-        // 9229 停在「确认结束」状态：验证两步按钮
+        // 9229 is armed: demonstrates the two-step button.
         state.pendingKillId = "9229-8123"
         state.newIds = ["5173-9021", "8000-4555"]
         state.alertPorts = [5173]
         state.killingIds = ["8080-3344"]
         state.lastUpdated = Date()
-        // 落地页的明细截图要有真实内容：用真实扫描中带项目归属的端口顶替首行
-        var realId: String?
-        if let real = PortScanner.scan()?.first(where: { $0.project != nil && $0.pid > 0 }) {
-            state.entries[0] = real
-            state.entries = state.entries.sorted { $0.port < $1.port }
-            realId = real.id
-        }
         return realId
+    }
+
+    /// Entries used by the landing-page animation, ordered the way they should
+    /// arrive on screen.
+    @MainActor
+    static func animationEntries() -> [PortEntry] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let lab = home + "/workspace/"
+        return [
+            PortEntry(port: 3000, pid: 8123, processName: "node", host: "0.0.0.0",
+                      project: "PortHawk", projectPath: lab + "PortHawk"),
+            PortEntry(port: 5173, pid: 9021, processName: "node", host: "127.0.0.1",
+                      project: "frontend-lab-website", projectPath: lab + "frontend-lab-website"),
+            PortEntry(port: 8000, pid: 4555, processName: "python3", host: "127.0.0.1",
+                      project: "ai-notes", projectPath: home + "/workspace/ai-notes"),
+            PortEntry(port: 8080, pid: 3344, processName: "java", host: "0.0.0.0",
+                      project: "gateway-service", projectPath: home + "/workspace/work/gateway-service"),
+            PortEntry(port: 9229, pid: 8123, processName: "node", host: "127.0.0.1",
+                      project: "PortHawk", projectPath: lab + "PortHawk"),
+            PortEntry(port: 5432, pid: 778, processName: "postgres", host: "127.0.0.1",
+                      project: nil, projectPath: nil),
+            PortEntry(port: 6379, pid: 779, processName: "redis-server", host: "127.0.0.1",
+                      project: nil, projectPath: nil),
+        ]
+    }
+
+    /// Plausible detail-page values for the animation: the mock PIDs are not
+    /// real processes, so the fields are supplied instead of introspected.
+    static func animationDetail() -> PortScanner.ProcessDetail {
+        PortScanner.ProcessDetail(
+            commandLine: ["/usr/local/bin/node", "--enable-source-maps", "server.js"],
+            userName: NSUserName(),
+            parentPID: 1,
+            residentBytes: 118 * 1_048_576,
+            threadCount: 11,
+            cpuSeconds: 42.6,
+            executablePath: "/usr/local/bin/node"
+        )
     }
 
     @MainActor
     static func render(to path: String) {
-        let state = AppState(preview: true)
+        let state = AppState(preview: true, flatList: true)
         fillMock(state)
         let renderer = ImageRenderer(content: PanelView().environmentObject(state))
         renderer.scale = 2
@@ -260,36 +314,210 @@ enum PreviewRenderer {
             exit(1)
         }
         try? png.write(to: URL(fileURLWithPath: path))
-        print("rendered → \(path)")
+        print("rendered -> \(path)")
     }
 }
 
-// MARK: - 浮动预览窗（真实数据、真实交互，供人工检查与截图验证）
+// MARK: - Frame renderer: storyboard frames for the landing-page animation
+
+/// Renders the panel through a scripted sequence of states so the landing page
+/// can play the real UI as video. Each frame mutates `AppState` and is captured
+/// with ImageRenderer, which draws the actual SwiftUI views — no mockups, no
+/// hand-drawn assets. Frames are written as PNGs and encoded outside the app.
+enum FrameRenderer {
+    /// 24 fps; scene lengths below are expressed in seconds.
+    static let fps = 24
+
+    @MainActor
+    static func render(to directory: String, scale: CGFloat = 2) {
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: directory, withIntermediateDirectories: true)
+
+        // ImageRenderer draws synchronously, which a frame-by-frame storyboard
+        // needs; it cannot lay out a ScrollView, so the list is flattened via
+        // flatList.
+        let state = AppState(preview: true, flatList: true)
+        let view = PanelView().environmentObject(state)
+
+        var frameIndex = 0
+        /// Scene start frames, keyed by a stable name. Written alongside the
+        /// frames so the landing page can seek the video to the segment that
+        /// matches the text it is showing, without hard-coding timings.
+        var scenes: [(name: String, startFrame: Int)] = []
+
+        func markScene(_ name: String) {
+            scenes.append((name, frameIndex))
+        }
+
+        func capture() {
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = scale
+            guard let image = renderer.nsImage,
+                  let tiff = image.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:]) else { return }
+            let name = String(format: "%05d.png", frameIndex)
+            try? png.write(to: URL(fileURLWithPath: directory + "/" + name))
+            frameIndex += 1
+        }
+
+        /// Render `count` frames, interpolating 0...1 and handing each step to
+        /// `apply`.
+        func animate(seconds: Double, apply: (Double) -> Void) {
+            let count = max(1, Int((seconds * Double(fps)).rounded()))
+            for i in 0..<count {
+                let t = count == 1 ? 1 : Double(i) / Double(count - 1)
+                apply(t)
+                capture()
+            }
+        }
+
+        func hold(seconds: Double) {
+            let count = max(1, Int((seconds * Double(fps)).rounded()))
+            for _ in 0..<count { capture() }
+        }
+
+        // --- Scene 1: empty ledger, rows arrive one by one -------------------
+        state.viewMode = .project
+        state.entries = []
+        state.favorites = []
+        state.collapsedGroups = []
+        state.lastUpdated = Date()
+        markScene("empty")
+        hold(seconds: 0.6)
+
+        let story: [PortEntry] = PreviewRenderer.animationEntries()
+        markScene("arrive")
+        state.rowAppearProgress = [:]
+        for (i, entry) in story.enumerated() {
+            let id = entry.id
+            // Add the row first, then fade it in from slightly below. Adding it
+            // afterwards would leave nothing on screen to animate.
+            state.entries = Array(story.prefix(i + 1))
+            state.rowAppearProgress?[id] = 0
+            animate(seconds: 0.22) { t in
+                state.rowAppearProgress?[id] = t
+            }
+            // Pause a beat so the arrival is readable.
+            hold(seconds: 0.1)
+        }
+        state.rowAppearProgress = nil
+        hold(seconds: 0.7)
+
+        // --- Scene 2: favorite an idle port -> placeholder row ----------------
+        markScene("favorite")
+        // 4747 is deliberately not listening, so favoriting it demonstrates the
+        // faint "not in use" placeholder and sets up the alert in scene 4.
+        let favoritePort = 4747
+        let favoriteRow = PortEntry(port: favoritePort, pid: 0, processName: "not in use",
+                                    host: "127.0.0.1", project: nil, projectPath: nil)
+        if let first = story.first {
+            state.forcedHoverId = first.id
+            hold(seconds: 0.3)
+            state.forcedHoverId = nil
+        }
+        state.favorites = [favoritePort]
+        state.rowAppearProgress = [favoriteRow.id: 0]
+        animate(seconds: 0.25) { t in state.rowAppearProgress?[favoriteRow.id] = t }
+        state.rowAppearProgress = nil
+        hold(seconds: 0.6)
+
+        // --- Scene 3: hover reveals the row actions, then two-step confirm ----
+        markScene("end")
+        let killTarget = story.first { $0.port == 8080 } ?? story[story.count / 2]
+        state.forcedHoverId = killTarget.id
+        hold(seconds: 0.7)
+        state.pendingKillId = killTarget.id
+        hold(seconds: 0.5)
+        // Confirmed: the row is struck through left to right.
+        state.pendingKillId = nil
+        state.killingIds = [killTarget.id]
+        state.strikeProgress = 0
+        animate(seconds: 0.35) { t in state.strikeProgress = t }
+        hold(seconds: 0.35)
+        // The process is gone; the row disappears.
+        state.killingIds = []
+        state.entries = state.entries.filter { $0.id != killTarget.id }
+        state.strikeProgress = 1
+        state.forcedHoverId = nil
+        hold(seconds: 0.5)
+
+        // --- Scene 4: the favorited port gets taken over -> seal + menu dot ---
+        markScene("alert")
+        let taker = PortEntry(port: favoritePort, pid: 6612, processName: "node",
+                              host: "0.0.0.0", project: "frontend-lab-website",
+                              projectPath: FileManager.default.homeDirectoryForCurrentUser.path + "/workspace/frontend-lab-website")
+        state.entries.append(taker)
+        state.newIds = [taker.id]
+        state.alertPorts = [favoritePort]
+        hold(seconds: 1.3)
+
+        // --- Scene 5: the LAN-only filter ------------------------------------
+        markScene("filter")
+        state.newIds = []
+        state.onlyExposed = true
+        hold(seconds: 1.0)
+        state.onlyExposed = false
+        state.alertPorts = []
+        hold(seconds: 0.4)
+
+        // --- Scene 6: drill into the detail page -----------------------------
+        markScene("detail")
+        let detailTarget = story.first { $0.port == 3000 } ?? story[0]
+        state.detailOverride = PreviewRenderer.animationDetail()
+        state.selectedId = detailTarget.id
+        state.detailProgress = 0
+        animate(seconds: 0.5) { t in state.detailProgress = t }
+        hold(seconds: 1.5)
+        state.detailProgress = 1
+
+        // --- Scene 7: back to the ledger, then the settings page -------------
+        markScene("settings")
+        state.selectedId = nil
+        state.detailOverride = nil
+        hold(seconds: 0.5)
+        state.showSettings = true
+        hold(seconds: 1.4)
+        state.showSettings = false
+        hold(seconds: 0.6)
+
+        // Emit the scene map so the landing page can drive its own scroll
+        // position from real timings instead of duplicating them by hand.
+        let manifest: [String: Any] = [
+            "fps": fps,
+            "frameCount": frameIndex,
+            "duration": Double(frameIndex) / Double(fps),
+            "width": Int(400 * scale),
+            "height": Int(596 * scale),
+            "scenes": scenes.map { ["name": $0.name, "frame": $0.startFrame] },
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: directory + "/manifest.json"))
+        }
+
+        print("rendered \(frameIndex) frames -> \(directory) @ \(fps)fps")
+        print("scenes: " + scenes.map { "\($0.name)@\($0.startFrame)" }.joined(separator: " "))
+    }
+}
+
+// MARK: - Floating preview window (real data, real interaction)
 
 enum PreviewWindow {
     @MainActor
     static func run(screenshotAfter path: String? = nil, mock: Bool = false, portMode: Bool = false, openDetail: Bool = false, openSettings: Bool = false) {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
-        let state = AppState(
-            preview: mock,
-            // mock 用独立存储域，避免污染正式的视图模式/收藏偏好
-            defaults: mock ? UserDefaults(suiteName: "controlport.verify")! : .standard
-        )
+        // Mocked runs use the scratch suite so they never pollute real prefs.
+        let state = AppState(preview: mock)
         if mock {
             let realId = PreviewRenderer.fillMock(state, portMode: portMode)
             if openDetail {
-                // 选中真实条目（fillMock 已用真实端口顶替首行）
                 state.selectedId = realId ?? state.entries.first?.id
                 state.detailCPU = 12.4
             }
             if openSettings {
-                state.viewMode = .project  // 复现用户的场景：按项目视图下进出设置
+                state.viewMode = .project
                 state.showSettings = true
-                // 模拟「从设置返回」：在截图前先关掉设置页，复现返回后的列表状态
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.4) {
-                    state.showSettings = false
-                }
             }
         }
         let window = NSWindow(
@@ -298,23 +526,28 @@ enum PreviewWindow {
             backing: .buffered,
             defer: false
         )
-        window.title = "PortHawk · 预览"
+        window.title = "PortHawk · Preview"
         window.contentView = NSHostingView(rootView: PanelView().environmentObject(state))
         window.center()
         window.level = .floating
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
-        app.activate()
+        // NSApplication.activate() is macOS 14+; fall back on macOS 13.
+        if #available(macOS 14.0, *) {
+            app.activate()
+        } else {
+            app.activate(ignoringOtherApps: true)
+        }
 
         if let path {
-            // 等两轮扫描完成后再截图，然后退出
+            // Wait for two scan rounds before capturing, then quit.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) {
                 if let view = window.contentView,
                    let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
                     view.cacheDisplay(in: view.bounds, to: rep)
                     if let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: path))
-                        print("screenshot → \(path)")
+                        print("screenshot -> \(path)")
                     }
                 }
                 app.terminate(nil)

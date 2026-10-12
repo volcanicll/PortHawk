@@ -1,7 +1,8 @@
 name: Release
 
-# 推送 v* 标签触发：注入版本号 → 构建 → 打 DMG/zip 安装包 → 创建 GitHub Release。
-# 落地页的下载按钮通过 Releases API 自动拿到新版本，无需重新部署网站。
+# Triggered by pushing a v* tag: inject version -> build -> package DMG/zip ->
+# create the GitHub Release. The landing page picks up the new version from the
+# Releases API at runtime, so it never needs redeploying.
 
 on:
   push:
@@ -16,19 +17,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 从 tag 注入版本号
+      - name: Inject version from the tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           plutil -replace CFBundleShortVersionString -string "$VERSION" Resources/Info.plist
           plutil -replace CFBundleVersion -string "$VERSION" Resources/Info.plist
 
-      - name: 构建
+      - name: Build
         run: ./build.sh
 
-      - name: 打 DMG 安装包
+      - name: Self-test the data layer
+        run: ./build/PortHawk.app/Contents/MacOS/PortHawk --selftest
+
+      - name: Verify deployment target
         run: |
-          # 拖装式：卷内放应用 + Applications 符号链接，打开 DMG 拖一下即装
+          # Refuse to ship a binary that requires a newer macOS than we
+          # advertise — this is how a newer runner SDK silently raises the floor.
+          MINOS=$(otool -l build/PortHawk.app/Contents/MacOS/PortHawk \
+            | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
+          ADVERTISED=$(plutil -extract LSMinimumSystemVersion raw build/PortHawk.app/Contents/Info.plist)
+          echo "minos=$MINOS advertised=$ADVERTISED"
+          [ "$MINOS" = "$ADVERTISED" ] || {
+            echo "!! binary requires macOS $MINOS but Info.plist advertises $ADVERTISED" >&2
+            exit 1
+          }
+
+      - name: Build the DMG
+        run: |
+          # Drag-to-install layout: the app plus an /Applications symlink, so a
+          # single drag from the mounted volume installs it.
           mkdir -p dmg-staging
           ditto build/PortHawk.app dmg-staging/PortHawk.app
           ln -s /Applications dmg-staging/Applications
@@ -38,22 +56,24 @@ jobs:
             -ov -format UDZO \
             "PortHawk-$VERSION-arm64.dmg"
 
-      - name: 打 zip 备选包
+      - name: Build the zip
         run: |
           cd build
           ditto -c -k --keepParent PortHawk.app "../PortHawk-$VERSION-arm64.zip"
 
-      - name: 生成不带版本号的固定名副本（供 install.sh 的 latest 直链使用）
+      - name: Add unversioned copies
         run: |
+          # install.sh resolves releases/latest/download/<fixed name>, which
+          # avoids the anonymous GitHub API rate limit.
           cp "PortHawk-$VERSION-arm64.dmg" "PortHawk-arm64.dmg"
           cp "PortHawk-$VERSION-arm64.zip" "PortHawk-arm64.zip"
 
-      - name: 校验产物
+      - name: Verify artifacts
         run: |
           ls -lh PortHawk-*.dmg PortHawk-*.zip
-          hdiutil imageinfo "PortHawk-$VERSION-arm64.dmg" > /dev/null && echo "DMG 校验通过"
+          hdiutil imageinfo "PortHawk-$VERSION-arm64.dmg" > /dev/null && echo "DMG verified"
 
-      - name: 创建 Release 并上传
+      - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -3,14 +3,12 @@ import Combine
 import ServiceManagement
 
 enum ViewMode: String, CaseIterable {
-    case project = "按项目"
-    case port = "按端口"
-
-    var persistedKey: String { "controlport.viewmode" }
+    case project = "By project"
+    case port = "By port"
 }
 
-/// 面板的数据中枢：3 秒轮询 lsof，对新旧快照做 diff，
-/// 驱动「新占用」印章、收藏端口告警与菜单栏红点。
+/// Panel data hub: polls lsof on an interval, diffs consecutive snapshots and
+/// drives the "new" seals, favorite-port alerts and the menu bar dot.
 @MainActor
 final class AppState: ObservableObject {
     @Published var entries: [PortEntry] = []
@@ -21,89 +19,124 @@ final class AppState: ObservableObject {
     @Published var favorites: Set<Int> {
         didSet { defaults.set(Array(favorites), forKey: "controlport.favorites") }
     }
-    /// 折叠的分组名。默认只折叠「系统与其他」；收藏与项目分组都可折叠。
+    /// Collapsed group names. "System & Other" starts collapsed; favorites and
+    /// project groups can be collapsed too.
     @Published var collapsedGroups: Set<String> {
         didSet { defaults.set(Array(collapsedGroups), forKey: "controlport.collapsed") }
     }
     @Published var paused = false
     @Published var lastUpdated: Date?
-    /// 结束信号已发出、等待进程退出的行，行上画红笔划线
+    /// Rows whose termination signal was sent and that are waiting to exit;
+    /// drawn with a strike-through.
     @Published var killingIds: Set<String> = []
-    /// 本轮扫描新出现的记录，短暂显示「新」印章
+    /// Records that appeared in the latest scan; show a "new" seal briefly.
     @Published var newIds: Set<String> = []
-    /// 收藏端口从空闲变为被占的告警集合，驱动菜单栏圆点
+    /// Favorited ports that just became occupied; drives the menu bar dot.
     @Published var alertPorts: Set<Int> = []
-    /// 页脚提示（如权限不足），几秒后自动消失
+    /// Footer notice (e.g. insufficient privileges), auto-clears after a few seconds.
     @Published var notice: String?
-    /// 明细页选中的账目行（借鉴 Pulse 的 inspector 钻取）
+    /// Row selected for the detail page.
     @Published var selectedId: String?
-    /// 明细页的实时 CPU%（两次轮询采样的差值）
+    /// Live CPU% on the detail page (delta between two polling samples).
     @Published var detailCPU: Double?
-    /// 工具栏「仅对外」快捷筛选（借鉴 Pulse 的过滤预设）
+    /// Toolbar "exposed only" quick filter.
     @Published var onlyExposed = false
-    /// 最近一轮扫描失败（lsof 启动失败/超时）。此时保留旧数据，页脚提示。
+    /// The latest scan failed (lsof could not spawn or timed out); previous data
+    /// is kept and the footer says so.
     @Published var scanFailed = false
-    /// 待二次确认的结束请求：行上先亮「确认结束」，再点一次才动手
+    /// Kill request awaiting its second confirmation.
     @Published var pendingKillId: String?
     @Published var pendingKillForce = false
-    /// 权限不足时的可复制命令（借鉴 PortBar：给命令而不是只给提示）
+    /// Copyable command shown when a kill is denied for lack of privileges.
     @Published var deniedKillCommand: String?
-    /// 设置页可见性（齿轮入口，与明细页互斥）
+    /// Settings page visibility (mutually exclusive with the detail page).
     @Published var showSettings = false
-    /// 刷新间隔（秒），设置页可调
+    /// Row forced into its hover state, used by the frame renderer: offscreen
+    /// rendering cannot synthesise a real pointer, so the hover reveal has to be
+    /// driven from state instead.
+    @Published var forcedHoverId: String?
+    /// Per-row appear progress (0 = not yet shown, 1 = fully in), keyed by entry
+    /// id. nil means "no animation, show everything".
+    @Published var rowAppearProgress: [String: Double]?
+    /// Strike-through progress 0...1 for the row being ended.
+    @Published var strikeProgress: Double = 1
+    /// Detail page slide-in progress: 0 = offscreen right, 1 = fully covering.
+    @Published var detailProgress: Double = 1
+    /// Synthetic detail data for mocked renders. Mock PIDs do not exist, so
+    /// proc_pidinfo returns nothing and the detail page would render as a column
+    /// of dashes. nil in normal use, where the real process is introspected.
+    @Published var detailOverride: PortScanner.ProcessDetail?
+    /// Refresh interval in seconds, adjustable in settings.
     @Published var refreshInterval: Double {
         didSet {
             defaults.set(refreshInterval, forKey: "controlport.interval")
             if !paused { restartTimer() }
         }
     }
-    /// 菜单栏是否显示端口数
+    /// Whether the menu bar shows the port count.
     @Published var showMenuBarCount: Bool {
         didSet { defaults.set(showMenuBarCount, forKey: "controlport.menu.count") }
     }
-    /// 登录自启（SMAppService），通过 setLaunchAtLogin 变更
+    /// Launch at login (SMAppService); change through setLaunchAtLogin.
     @Published private(set) var launchAtLogin: Bool
 
-    static let systemGroupName = "系统与其他"
-    /// 供离屏渲染识别：渲染态不显示可编辑控件、不跑定时器
+    static var systemGroupName: String { AlertRules.systemGroupName }
+    /// Lets offscreen rendering hide editable controls and skip timers.
     let isPreviewRender: Bool
+    /// Render the ledger without its ScrollView. ImageRenderer cannot size a
+    /// scroll view's content, so the rows come out blank; frame and preview
+    /// renders flatten the list instead. Never set in the running app.
+    let flatList: Bool
     private let defaults: UserDefaults
     private var previousIds: Set<String> = []
-    private var favoriteBusy: [Int: Bool] = [:]
+    private var previousOccupied: Set<Int> = []
+    /// False until the first successful scan: without a prior snapshot there is
+    /// no transition to detect.
+    private var hasOccupiedBaseline = false
     private var timer: Timer?
     private var noticeTask: Task<Void, Never>?
     private var lastCPUSample: (seconds: Double, at: Date)?
     private var pendingKillResetTask: Task<Void, Never>?
 
-    init(preview: Bool = false, defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    /// Suite backing mocked/screenshot runs, so diagnostics never touch the
+    /// user's real preferences.
+    static let previewDefaultsSuite = "controlport.verify"
+
+    init(preview: Bool = false, defaults: UserDefaults? = nil, flatList: Bool = false) {
+        // Preview and screenshot modes always use the scratch suite: the mock
+        // fixtures write favorites, and with .standard that leaked into the
+        // user's real settings.
+        self.defaults = defaults ?? (preview ? UserDefaults(suiteName: Self.previewDefaultsSuite)! : .standard)
         self.isPreviewRender = preview
-        if defaults === UserDefaults.standard {
-            Self.migrateLegacyPreferences(into: defaults)
+        self.flatList = flatList
+        if self.defaults === UserDefaults.standard {
+            Self.migrateLegacyPreferences(into: self.defaults)
         }
-        self.viewMode = ViewMode(rawValue: defaults.string(forKey: "controlport.viewmode") ?? "") ?? .project
-        self.refreshInterval = defaults.object(forKey: "controlport.interval") as? Double ?? 3
-        self.showMenuBarCount = defaults.object(forKey: "controlport.menu.count") as? Bool ?? true
+        self.viewMode = ViewMode(rawValue: self.defaults.string(forKey: "controlport.viewmode") ?? "") ?? .project
+        self.refreshInterval = self.defaults.object(forKey: "controlport.interval") as? Double ?? 3
+        self.showMenuBarCount = self.defaults.object(forKey: "controlport.menu.count") as? Bool ?? true
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
-        if let saved = defaults.array(forKey: "controlport.favorites") as? [Int] {
+        if let saved = self.defaults.array(forKey: "controlport.favorites") as? [Int] {
             self.favorites = Set(saved)
         } else {
             self.favorites = []
         }
-        if let savedGroups = defaults.array(forKey: "controlport.collapsed") as? [String] {
-            self.collapsedGroups = Set(savedGroups)
+        if let savedGroups = self.defaults.array(forKey: "controlport.collapsed") as? [String] {
+            self.collapsedGroups = Set(savedGroups.map(AlertRules.migrateGroupName))
         } else {
-            self.collapsedGroups = [AppState.systemGroupName]
+            self.collapsedGroups = [AlertRules.systemGroupName]
         }
-        // 启动即扫描并常驻定时器：菜单栏徽标要在用户第一次点开面板之前就有数字
+        // Scan immediately and keep the timer running: the menu bar badge must
+        // show a count before the user ever opens the panel.
         if !preview {
             refreshOnce()
             restartTimer()
         }
     }
 
-    /// 项目历经 controlPort → PortPeek → PortHawk 改名，bundle id 随之变更；
-    /// 首次以新身份启动时按顺序找旧域的偏好搬过来，只补缺失键，幂等。
+    /// The project was renamed controlPort -> PortPeek -> PortHawk, changing the
+    /// bundle id each time; on first launch under a new identity, pull settings
+    /// from the older domains. Missing keys only, so it is idempotent.
     private static func migrateLegacyPreferences(into defaults: UserDefaults) {
         let legacyDomains = ["local.controlport.app", "app.portpeek.PortPeek"]
         let keys = ["controlport.viewmode", "controlport.favorites", "controlport.interval", "controlport.menu.count"]
@@ -142,7 +175,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 面板打开时调用：清掉红点，立刻刷一轮。
+    /// Called when the panel opens: clear the dot and refresh immediately.
     func markPanelOpened() {
         guard !isPreviewRender else { return }
         alertPorts = []
@@ -158,11 +191,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    func kill(_ entry: PortEntry) {
-        kill(entry, force: false)
-    }
-
-    /// 第一步：在行上亮起「确认结束」，2.5 秒内不确认就自动收回。
+    /// First step: arm the "confirm" state on the row; it reverts after 2.5 s.
     func requestKill(_ entry: PortEntry, force: Bool = false) {
         guard !killingIds.contains(entry.id) else { return }
         pendingKillResetTask?.cancel()
@@ -176,7 +205,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 第二步：真发送信号。
+    /// Second step: actually send the signal.
     func confirmPendingKill() {
         guard let id = pendingKillId,
               let entry = entries.first(where: { $0.id == id }) else {
@@ -199,13 +228,13 @@ final class AppState: ObservableObject {
             let sent = PortScanner.kill(pid: pid, force: force)
             if !sent {
                 await MainActor.run {
-                    self.showNotice("权限不足，无法结束 PID \(pid)")
+                    self.showNotice("Not permitted to end PID \(pid)")
                     self.deniedKillCommand = command
                 }
             }
             if !force {
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                // TERM 没退掉就补 KILL
+                // Escalate to KILL when TERM did not take.
                 if sent, PortScanner.isAlive(pid) {
                     _ = PortScanner.kill(pid: pid, force: true)
                 }
@@ -217,7 +246,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - 明细钻取
+    // MARK: - Detail drill-down
 
     var selectedEntry: PortEntry? {
         selectedId.flatMap { id in entries.first { $0.id == id } }
@@ -236,7 +265,8 @@ final class AppState: ObservableObject {
         lastCPUSample = nil
     }
 
-    /// 累计 CPU 时间的两次采样差 → CPU%。第一次采样只记录基准。
+    /// Delta of cumulative CPU time between two samples -> CPU%. The first
+    /// sample only establishes a baseline.
     private func sampleDetailCPU() {
         guard let selected = selectedEntry,
               let now = PortScanner.cpuSecondsSnapshot(for: selected.pid) else {
@@ -256,18 +286,32 @@ final class AppState: ObservableObject {
         showNotice(text)
     }
 
-    /// 规范的粘贴板写入：先 clearContents 再 setString。
-    /// 直接 setString 时，粘贴板上残留的懒加载数据提供者可能让粘贴方拿到旧内容，
-    /// 表现就是「复制了但粘出来是旧的」；返回值让调用方能够提示真实结果。
+    /// Canonical pasteboard write: clearContents before setString. Setting the
+    /// string alone can hand the pastee stale content from a lingering lazy
+    /// data provider — the classic "copied but pasted something old" bug. The
+    /// return value lets callers report the real outcome.
     func copyToPasteboard(_ text: String) -> Bool {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         return pasteboard.setString(text, forType: .string)
     }
 
-    // MARK: - 快照 diff 与派生数据
+    /// Open a listening port in the default browser. Returns the URL it tried,
+    /// or nil when the row has nothing to open (a favorite placeholder).
+    @discardableResult
+    func openInBrowser(_ entry: PortEntry) -> URL? {
+        guard let url = entry.browseURL else {
+            showNotice("Port \(entry.port) is not being listened on")
+            return nil
+        }
+        NSWorkspace.shared.open(url)
+        return url
+    }
 
-    /// 快照落账。fresh 为 nil 表示扫描失败：保留上一轮数据，只翻失败旗标。
+    // MARK: - Snapshot diff and derived data
+
+    /// Commit a snapshot. A nil `fresh` means the scan failed: keep the previous
+    /// data and only raise the failure flag.
     private func apply(_ fresh: [PortEntry]?) {
         guard let fresh else {
             scanFailed = true
@@ -286,16 +330,15 @@ final class AppState: ObservableObject {
             }
         }
 
-        var busyNow: [Int: Bool] = [:]
-        for entry in fresh where favorites.contains(entry.port) {
-            busyNow[entry.port] = true
-        }
-        for (port, wasBusy) in favoriteBusy where favorites.contains(port) {
-            if busyNow[port] == true, !wasBusy {
-                alertPorts.insert(port)
-            }
-        }
-        favoriteBusy = busyNow
+        let occupiedNow = Set(fresh.map(\.port))
+        alertPorts.formUnion(AlertRules.newlyOccupiedFavorites(
+            favorites: favorites,
+            previousOccupied: previousOccupied,
+            currentOccupied: occupiedNow,
+            hasBaseline: hasOccupiedBaseline
+        ))
+        previousOccupied = occupiedNow
+        hasOccupiedBaseline = true
 
         previousIds = ids
         killingIds = killingIds.intersection(ids)
@@ -334,13 +377,14 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 打开设置页（与明细页互斥）
+    /// Open settings (mutually exclusive with the detail page).
     func openSettings() {
         selectedId = nil
         showSettings = true
     }
 
-    /// 登录自启开关。SMAppService 注册失败时回读真实状态，不让开关说谎。
+    /// Launch-at-login toggle. When SMAppService registration fails, re-read the
+    /// real status so the switch never lies.
     func setLaunchAtLogin(_ on: Bool) {
         do {
             if on {
@@ -349,7 +393,7 @@ final class AppState: ObservableObject {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            showNotice("开机自启设置失败：\(error.localizedDescription)")
+            showNotice("Could not change launch at login: \(error.localizedDescription)")
         }
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
@@ -371,44 +415,46 @@ final class AppState: ObservableObject {
             }
     }
 
-    /// 账簿的分组行。收藏组永远置顶：占用的真实行 + 未占用端口的淡墨占位行；
-    /// 项目视图其后按项目分组（收藏的端口不再重复出现），「系统与其他」垫底；
-    /// 端口视图其后是「全部端口」。
+    /// Ledger groups. Favorites always come first: real rows plus faint
+    /// placeholder rows for favorited ports that are idle. In project view the
+    /// remaining entries group by project (favorites are not repeated) with
+    /// "System & Other" last; in port view everything else lands in "All ports".
     var groups: [(name: String, entries: [PortEntry])] {
         let visible = filtered
         let q = query.trimmingCharacters(in: .whitespaces)
 
-        // 占位行只看「端口是否真的被占」和「是否匹配搜索」，不受 仅对外 影响
+        // Placeholders depend only on real occupancy and the search text; the
+        // "exposed only" filter deliberately does not apply to them.
         let occupiedPorts = Set(entries.map(\.port))
         let placeholders: [PortEntry] = favorites
             .filter { !occupiedPorts.contains($0) }
             .filter { q.isEmpty || String($0).contains(q) }
             .sorted()
             .map {
-                PortEntry(port: $0, pid: 0, processName: "未占用",
-                          isLanExposed: false, project: nil, projectPath: nil)
+                PortEntry(port: $0, pid: 0, processName: "not in use",
+                          host: "127.0.0.1", project: nil, projectPath: nil)
             }
         let favoriteGroup = (visible.filter { favorites.contains($0.port) } + placeholders)
             .sorted { $0.port != $1.port ? $0.port < $1.port : $0.pid < $1.pid }
 
         var result: [(String, [PortEntry])] = []
         if !favoriteGroup.isEmpty {
-            result.append(("收藏", favoriteGroup))
+            result.append((AlertRules.favoritesGroupName, favoriteGroup))
         }
 
         let unmarked = visible.filter { !favorites.contains($0.port) }
         if viewMode == .port {
-            result.append(("全部端口", unmarked))
+            result.append(("All ports", unmarked))
             return result
         }
         let byProject = Dictionary(grouping: unmarked) {
-            $0.project ?? AppState.systemGroupName
+            $0.project ?? AlertRules.systemGroupName
         }
         result += byProject
             .map { (name: $0.key, entries: $0.value) }
             .sorted { a, b in
-                if a.name == AppState.systemGroupName { return false }
-                if b.name == AppState.systemGroupName { return true }
+                if a.name == AlertRules.systemGroupName { return false }
+                if b.name == AlertRules.systemGroupName { return true }
                 return a.name.localizedStandardCompare(b.name) == .orderedAscending
             }
         return result

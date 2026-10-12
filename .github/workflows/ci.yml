@@ -1,7 +1,8 @@
 name: CI
 
-# 主线构建自检：Sources/Resources/build.sh 变化或 PR 时跑一次编译，
-# 保证 build.sh 在干净环境始终可用。
+# Main-branch build check: compile on a clean macOS runner whenever Sources/,
+# Resources/ or build.sh change, or on pull requests. The self-test suite runs
+# against the built binary so data-layer regressions fail the build.
 
 on:
   push:
@@ -19,8 +20,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 构建
+      - name: Build
         run: ./build.sh
+
+      - name: Self-test the data layer
+        run: ./build/PortHawk.app/Contents/MacOS/PortHawk --selftest
+
+      - name: Verify deployment target
+        run: |
+          # The binary must not require a newer macOS than we advertise; a
+          # newer runner SDK otherwise silently raises the floor.
+          MINOS=$(otool -l build/PortHawk.app/Contents/MacOS/PortHawk \
+            | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
+          ADVERTISED=$(plutil -extract LSMinimumSystemVersion raw build/PortHawk.app/Contents/Info.plist)
+          echo "minos=$MINOS advertised=$ADVERTISED"
+          [ "$MINOS" = "$ADVERTISED" ] || {
+            echo "!! binary requires macOS $MINOS but Info.plist advertises $ADVERTISED" >&2
+            exit 1
+          }
 
       - uses: actions/upload-artifact@v4
         with:
