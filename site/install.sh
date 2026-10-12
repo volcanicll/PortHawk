@@ -1,43 +1,71 @@
 #!/bin/bash
-# PortHawk 一键安装脚本
+# PortHawk one-command installer
 #
-# 为什么需要它：应用是临时签名（无 Developer ID 证书、未公证），
-# 浏览器下载的 DMG 带 quarantine 标记，Gatekeeper 会报「已损坏」或「无法验证开发者」。
-# 而 curl 下载的文件天生不带 quarantine，装完即开。
+# Why it exists: the app is ad-hoc signed (no Developer ID certificate, not
+# notarized), so a browser-downloaded DMG carries a quarantine flag and
+# Gatekeeper reports "damaged" or "unidentified developer". Files fetched with
+# curl are never quarantined, so this installs and runs straight away.
 #
-# 用法：curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash
+# Usage: curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash
 #
-# 下载走 releases/latest/download 的固定名直链，不依赖 GitHub API（匿名 API 有每小时限流）；
-# 每次发布工作流都会同时上传带版本号与固定名两份产物。
+# Downloads from releases/latest/download/<fixed name>, which avoids the
+# anonymous GitHub API rate limit; every release publishes both versioned and
+# unversioned copies.
 set -euo pipefail
 
 REPO="volcanicll/PortHawk"
+APP="/Applications/PortHawk.app"
+
+# Releases are built for Apple Silicon only; an Intel Mac would install a
+# binary it cannot run, so stop with a clear message instead.
+if [ "$(uname -m)" != "arm64" ]; then
+  echo "!! PortHawk ships Apple Silicon (arm64) builds only."
+  echo "   This Mac reports $(uname -m). Build from source instead:"
+  echo "   git clone https://github.com/$REPO && cd PortHawk && ./build.sh"
+  exit 1
+fi
+
+if [ "$(sw_vers -productVersion | cut -d. -f1)" -lt 13 ]; then
+  echo "!! PortHawk requires macOS 13 or newer (this Mac runs $(sw_vers -productVersion))."
+  exit 1
+fi
+
 URL="https://github.com/$REPO/releases/latest/download/PortHawk-arm64.dmg"
 
-echo "==> 下载最新版 $URL"
+echo "==> Downloading the latest build from $URL"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 curl -fL --retry 3 -o "$TMP/PortHawk.dmg" "$URL"
 
-echo "==> 挂载镜像…"
-# 不用 -quiet：解析本次挂载的精确卷路径。不能按 /Volumes/PortHawk* 通配——
-# 用户之前挂载过的旧卷会排在前面，导致装到旧版本。
+echo "==> Mounting the image..."
+# Resolve the exact volume path from this mount rather than globbing
+# /Volumes/PortHawk*: a volume left over from an earlier install sorts first and
+# would install the old version.
 MOUNT=$(hdiutil attach "$TMP/PortHawk.dmg" -nobrowse | sed -n 's/.*\(\/Volumes\/.*\)$/\1/p' | tail -1)
 if [ -z "$MOUNT" ] || [ ! -d "$MOUNT/PortHawk.app" ]; then
-  echo "!! 挂载失败，请手动打开 DMG 并把 PortHawk.app 拖入「应用程序」"
+  echo "!! Mount failed. Open the DMG manually and drag PortHawk.app into Applications."
   exit 1
 fi
-echo "==> 挂载于 $MOUNT"
+echo "==> Mounted at $MOUNT"
 
-echo "==> 安装到 /Applications/PortHawk.app …"
-rm -rf /Applications/PortHawk.app
-ditto "$MOUNT/PortHawk.app" /Applications/PortHawk.app
+echo "==> Installing to $APP ..."
+rm -rf "$APP"
+ditto "$MOUNT/PortHawk.app" "$APP"
 hdiutil detach "$MOUNT" -quiet
 
-# 双保险：清掉可能存在的 quarantine（curl 下载一般没有）
-xattr -cr /Applications/PortHawk.app 2>/dev/null || true
+# Belt and braces: drop any quarantine flag that might still be attached.
+xattr -cr "$APP" 2>/dev/null || true
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" \
-  /Applications/PortHawk.app/Contents/Info.plist 2>/dev/null || echo "?")
-echo "==> 完成！PortHawk $VERSION 已装入 /Applications"
-echo "==> 启动：open /Applications/PortHawk.app，菜单栏见书本图标"
+  "$APP/Contents/Info.plist" 2>/dev/null || echo "?")
+
+# A previously running copy keeps the old binary in memory; restart it so the
+# user actually ends up on the new version.
+if pgrep -f "PortHawk.app/Contents/MacOS/PortHawk" > /dev/null 2>&1; then
+  echo "==> Stopping the running copy..."
+  pkill -f "PortHawk.app/Contents/MacOS/PortHawk" || true
+  sleep 1
+fi
+
+echo "==> Done. PortHawk $VERSION installed."
+echo "==> Launch with: open $APP — the book icon appears in your menu bar."

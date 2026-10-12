@@ -1,121 +1,153 @@
-# PortHawk · 端口簿
+# PortHawk
 
-> 常驻 macOS 菜单栏的端口账簿：**什么应用占了什么端口、什么项目用了什么端口**，一眼可查。
+> A port ledger living in your macOS menu bar: **which app owns which port, which project runs which port** — at a glance.
 
 [![CI](https://github.com/volcanicll/PortHawk/actions/workflows/ci.yml/badge.svg)](https://github.com/volcanicll/PortHawk/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/volcanicll/PortHawk?color=A3321C&label=%E7%89%88%E6%9C%AC)](https://github.com/volcanicll/PortHawk/releases/latest)
-[![Site](https://img.shields.io/badge/%E8%90%BD%E5%9C%B0%E9%A1%B5-2D4B6F)](https://volcanicll.github.io/PortHawk/)
+[![Release](https://img.shields.io/github/v/release/volcanicll/PortHawk?color=A3321C&label=version)](https://github.com/volcanicll/PortHawk/releases/latest)
+[![Site](https://img.shields.io/badge/landing-2D4B6F)](https://volcanicll.github.io/PortHawk/)
 
-**下载安装**：前往 [落地页](https://volcanicll.github.io/PortHawk/)，或终端一条命令安装最新版：
+**Install**: visit the [landing page](https://volcanicll.github.io/PortHawk/), or run one command to install the latest build:
 
 ```bash
 curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash
 ```
 
-[English](README.en.md) · 中文
+![Panel](verify/panel.png)
 
-![面板总览](verify/panel.png)
+PortHawk is a native SwiftUI menu bar app (`MenuBarExtra`) — a single ~1 MB binary, no Electron, no runtime dependencies. It keeps a ledger of every TCP listening port on the machine: the port number sits in a left margin column like a page number, with process, project, PID and path on the right. Project ownership is inferred automatically from each process's working directory.
 
-PortHawk 是一个原生 SwiftUI 菜单栏应用（`MenuBarExtra`），整个 App 是一个约 1 MB 的二进制，无 Electron、无运行时依赖。它把本机所有 TCP 监听端口记成一册账：端口号在左侧页码列，进程、所属项目、PID、路径在右；项目归属通过读取进程工作目录自动推断。
+## Features
 
-## 功能
+- **Ledger panel**: every TCP listening port in one ledger, hairline-ruled groups, serif titles, monospaced port numbers.
+- **Two views**: "By project" groups ports under their owning project; "By port" lists favorites first, then everything else by port number.
+- **Brand ink dots**: ~100 well-known dev-tool processes (node, python, redis-server, Code Helper…) get a brand-colored dot before their name.
+- **Detail inspector**: click any row for a full page — complete command line, executable path, working directory, user, parent PID, threads, memory, cumulative and live CPU%; open the port in your browser, copy its PID or port number, or end / force-end (SIGKILL) right there.
+- **Open in browser**: the row menu and the detail page hand the listener to your default browser. A wildcard bind (`0.0.0.0` / `*` / `[::]`) opens on `127.0.0.1`, since that always works; a listener bound to one specific interface address opens there instead. Ports 443/8443/9443 open over `https`, everything else over `http`. Favorite placeholder rows have no process, so there is nothing to open.
+- **Two-step end**: hover a row for "end"; the first click arms a solid "Confirm", the second one within 2.5 s sends the signal. A row being ended gets struck through with a vermilion line, like ink cancelling a ledger entry.
+- **Favorites & placeholders**: star ports you care about; idle favorites show a faint "not in use" placeholder row, so a dead service is obvious at a glance.
+- **Occupancy alerts**: when a favorited port gets taken by a new process, the menu bar icon lights a dot and the row gets a vermilion "taken" seal; brand-new ports get a blue "new" seal.
+- **Exposed / local badge**: any listener that is not bound to loopback is marked ochre "LAN" — that includes `0.0.0.0` / `*` / `[::]` and addresses bound to a specific interface such as `192.168.1.5`. Loopback-only listeners are gray "local". A "LAN only" chip filters your attack surface in one click.
+- **Honest failures**: if lsof fails (including a 3 s timeout), the last snapshot is kept and the footer says so — it never pretends there are no ports.
+- **Settings**: refresh interval (1/3/5/10 s), menu bar count toggle, launch at login (SMAppService).
 
-- **账簿面板**：所有 TCP 监听端口一册账，hairline 横格分组，宋体标题、等宽端口号。
-- **两种视图**：「按项目」把端口归到所属项目组下；「按端口」先收藏、后全部，按端口号排序。
-- **进程品牌墨点**：约 90 项常见开发工具进程（node、python、redis-server、Code Helper…）在行首显示品牌色墨点。
-- **明细页**：点任意行钻取整页明细——完整命令行、可执行路径、所在目录、用户、父进程、线程数、内存、累计与实时 CPU%，可直接结束或强制结束（SIGKILL）。
-- **一键结束进程（两步确认）**：悬停行出现「结束」，第一次点变实心「确认结束」，2.5 秒内再点才发信号；结束中的行被红笔划掉（账簿式批注）。权限不足时页脚给出可复制的 sudo 命令。
-- **收藏与占位行**：点星收藏常用端口，置顶展示；收藏的端口空闲时显示淡墨「未占用」占位行，服务挂掉一目了然。
-- **占用告警**：收藏端口被新进程占走时，菜单栏图标出现圆点、行上盖朱砂「占」印章；新端口盖蓝墨「新」印章。
-- **对外/本机徽章**：监听 `0.0.0.0` / `*`（局域网可达）标赭色「对外」，仅 `127.0.0.1` 标灰色「本机」；工具栏「仅对外」一键筛选暴露面。
-- **失败不撒谎**：lsof 扫描失败（含 3 秒超时）时保留上一轮数据，页脚提示「扫描失败 · 保留上一轮」。
-- **设置页**：刷新间隔（1/3/5/10 秒）、菜单栏数字开关、登录时启动（SMAppService）。
+## Screenshots
 
-## 截图
-
-| 明细页 | 设置页 |
+| Detail inspector | Settings |
 | --- | --- |
-| ![明细页](verify/detail.png) | ![设置页](verify/settings.png) |
+| ![Detail](verify/detail.png) | ![Settings](verify/settings.png) |
 
-## 安装与签名说明
+## Build & Run
 
-应用使用 **ad-hoc 临时签名**（仓库无 Apple Developer 证书，未公证）。这带来一个已知代价：
-
-- **浏览器下载的 DMG/zip 带 quarantine 标记**，首次打开会弹「已损坏，无法打开」或「无法验证开发者」。
-- 两种解法：
-  1. **用安装脚本**（推荐）：`curl -fsSL https://volcanicll.github.io/PortHawk/install.sh | bash`——curl 下载的文件不带 quarantine，装完直接能开，且总是最新版；
-  2. **手动安装后清除标记**：`xattr -cr /Applications/PortHawk.app`，之后正常打开。
-
-若要彻底消除该提示，需要 Developer ID 证书签名 + 公证（Apple Developer Program，$99/年）；收到 `codesign` 证书后在 `release.yml` 构建步骤加入签名与 `notarytool` 公证即可。
-
-## 构建与运行
-
-要求 macOS 13+ 与 Command Line Tools（无需完整 Xcode）。
+Requires macOS 13+ and Command Line Tools (full Xcode not needed). Release builds are Apple Silicon (arm64); `install.sh` stops with a clear message on Intel Macs rather than installing a binary that cannot run.
 
 ```bash
 ./build.sh
 open build/PortHawk.app
 ```
 
-构建产物在 `build/PortHawk.app`，菜单栏出现书本图标与端口计数。
+`build.sh` pins `-target` to the advertised minimum macOS and fails the build if the resulting binary ends up requiring something newer. Without that pin, `swiftc` inherits the SDK's default deployment target, which tracks the toolchain — a newer CI runner silently raises the floor and the shipped app refuses to launch on the versions the README promises.
 
-## 开发与诊断
+## Development & Diagnostics
 
 ```bash
-# 数据层自检：与 lsof 原始输出对照
+# Data-layer self check, diffable against raw lsof output
 ./build/PortHawk.app/Contents/MacOS/PortHawk --cli
 
-# 对指定端口发结束信号（验证 kill 流程）
+# Assertion suite for the parsing, exposure and alert rules (also run in CI)
+./build/PortHawk.app/Contents/MacOS/PortHawk --selftest
+
+# Send a kill signal to a port (verifies the kill flow)
 ./build/PortHawk.app/Contents/MacOS/PortHawk --cli --kill-port 3000
 
-# 浮动预览窗（真实数据真实交互，免菜单栏点击）
+# Floating preview window (real data, real interaction)
 ./build/PortHawk.app/Contents/MacOS/PortHawk --preview
 
-# 截图验证：真实数据 / 模拟状态 / 明细页 / 设置页 / 菜单栏图标
+# Screenshot verification: real / mocked states / detail / settings / menu bar icon
 ./build/PortHawk.app/Contents/MacOS/PortHawk --screenshot verify/real.png
 ./build/PortHawk.app/Contents/MacOS/PortHawk --screenshot-mock verify/mock.png
 ./build/PortHawk.app/Contents/MacOS/PortHawk --screenshot-mock-detail verify/detail.png
 ./build/PortHawk.app/Contents/MacOS/PortHawk --screenshot-mock-settings verify/settings.png
 ./build/PortHawk.app/Contents/MacOS/PortHawk --render-icon verify/icon.png 12 --alert
+
+# Storyboard frames for the landing-page animation
+./build/PortHawk.app/Contents/MacOS/PortHawk --render-frames /tmp/frames --scale 2
 ```
 
-## 发布流程（GitHub Actions）
+Mocked runs read and write a separate `controlport.verify` preferences suite, so screenshots never disturb your real favorites or view mode.
 
-- **`ci.yml`**：`Sources/`、`build.sh` 变化或 PR 时在干净的 macOS runner 上跑一次 `./build.sh`，保证构建脚本始终可用。
-- **`release.yml`**：推送 `v*` 标签触发——从 tag 注入版本号到 Info.plist → 构建 → 打 DMG 与 zip 安装包 → 自动创建 GitHub Release 并上传产物。
-- **`site-deploy.yml`**：`site/` 变化时把落地页部署到 GitHub Pages。页面版本号在浏览器里运行时从 Releases API 拉取，**应用发新版只需推 tag，落地页无需重部署**。
+### The landing-page animation
 
-日常发版：`git tag v0.x.0 && git push origin v0.x.0`。
+`--render-frames` walks the panel through a scripted sequence of states — rows arriving, a favorite placeholder, the two-step end with its strike-through, an alert, the LAN filter, the detail drill-down, settings — and captures each frame with `ImageRenderer`. The frames are the real SwiftUI views, not mockups.
 
-## 数据来源与边界
+Alongside the PNGs it writes `manifest.json` recording which frame each scene starts on, so the site can seek the video to the segment matching the caption on screen instead of duplicating the timings by hand. Re-render and re-encode after UI changes:
 
-- 端口清单：`lsof -iTCP -sTCP:LISTEN -n -P -l +c0`，按 `(port, pid)` 去重（IPv4/IPv6 双栈只记一条，与 `lsof` 的行数差异即来源于此）。
-- 项目推断：`proc_pidinfo(PROC_PIDVNODEPATHINFO)` 读进程 cwd，取目录 basename；`/System`、`/usr`、`/private/var`、`/tmp` 等系统路径与家目录本身不视为项目。
-- 只覆盖**当前用户**的进程：其他用户的进程读不到 cwd 与可执行路径（明细相应字段显示 `—`），结束他人进程会提示权限不足并给出 sudo 命令。
-- 只监控 TCP 监听；UDP 与出站连接不在账上。
-- lsof 会把进程名里的空格转义为 `\x20`（如 `Google\x20Chrome`），已还原。
+```bash
+./build/PortHawk.app/Contents/MacOS/PortHawk --render-frames /tmp/frames --scale 2
+ffmpeg -y -framerate 24 -i /tmp/frames/%05d.png \
+  -c:v libx264 -pix_fmt yuv420p -crf 24 -preset slow \
+  -g 12 -keyint_min 12 -sc_threshold 0 -movflags +faststart -an \
+  site/assets/panel.mp4
+cp /tmp/frames/00240.png site/assets/panel-poster.png
+cp /tmp/frames/manifest.json site/assets/manifest.json
+```
 
-## 灵感与借鉴
+A few notes on why the encode looks the way it does: `-g 12` keeps keyframes dense so chapter seeking stays responsive (about 40 ms), `-crf 24` holds the whole 14 s clip near 1.4 MB, and `+faststart` moves the index to the front so playback can begin before the file finishes downloading. The `manifest.json` copy is what keeps the site's scene timings in step with the video.
 
-**[Pulse](https://github.com/egoist/pulse)**（Go + WebView 菜单栏系统监视器）——品牌墨点、inspector 明细钻取、Force Quit、过滤预设均来自对其二进制的静态逆向；其整机监控能力不属于端口账簿的边界，未采纳。
+The landing page loops: the overview plays the whole clip on repeat as an attract mode, and each feature scene replays its own segment with a short hold on the final frame, so the animation keeps demonstrating for as long as the scene is on screen. Switching scenes cancels the pending repeat, and the install scene leaves the video paused. Dwell times per scene live in `DWELL_MS` in `site/app.js`.
 
-**[PortBar](https://github.com/egoist/portbar)**（Swift 菜单栏端口监控）——收藏占位行、扫描失败保留旧数据、扫描超时、结束进程二次确认、sudo 命令复制、菜单栏数字徽标、登录自启。
+`ImageRenderer` cannot lay out a `ScrollView`'s content, which is why `AppState.flatList` exists: offscreen renders flatten the list, the detail page and the settings page into plain clipped stacks. It is never set in the running app.
 
-## 目录结构
+### The app icon
+
+`Tools/make-icon.swift` draws the icon and `Resources/AppIcon.icns` is built from its output. The artwork is designed in a 1024×1024 space and then scaled onto the body of Apple's macOS icon grid — an 824×824 rounded square centred in the 1024 canvas, leaving 100px of transparent margin on every side. Drawing edge to edge instead makes the icon read as oversized next to every other app in the Dock, which is exactly what the grid exists to prevent.
+
+The generator measures its own output and exits non-zero if the body coverage drifts more than 1.5% from 80.5%, so a future tweak cannot silently reintroduce an oversized icon:
+
+```bash
+swift Tools/make-icon.swift /tmp/icon
+# icon body covers 80.5% of the canvas (Apple grid expects ~80.5%)
+```
+
+
+## Release Flow (GitHub Actions)
+
+- **`ci.yml`**: builds `./build.sh` on a clean macOS runner whenever `Sources/`, `Resources/` or `build.sh` change, or on PRs. It also runs `--selftest` and asserts that the binary's deployment target matches the advertised `LSMinimumSystemVersion`.
+- **`release.yml`**: triggered by pushing a `v*` tag — injects the version from the tag into Info.plist → builds → runs the same self-test and deployment-target gates → produces DMG + zip → creates a GitHub Release with the artifacts.
+- **`site-deploy.yml`**: deploys the landing page to GitHub Pages when `site/` changes. The page reads the latest version from the Releases API at runtime (falling back to `releases.atom`), so **shipping a new app version never requires redeploying the site**.
+
+Everyday release: `git tag v0.x.0 && git push origin v0.x.0`.
+
+## Data Sources & Limits
+
+- Port list: `lsof -iTCP -sTCP:LISTEN -n -P -l +c0`, deduplicated by `(port, pid)` — IPv4/IPv6 dual-stack listeners count once. When one process listens on both a loopback and a wildcard address for the same port, the entry keeps the wider exposure rather than whichever row lsof printed first.
+- Project inference: `proc_pidinfo(PROC_PIDVNODEPATHINFO)` reads each process's working directory; system paths (`/System`, `/usr`, `/private/var`, `/tmp`…) and the home directory itself are not treated as projects.
+- Only **your own** processes are fully visible: other users' processes expose no cwd/executable path (detail fields show `—`), and ending them requires sudo.
+- TCP listeners only; UDP and outbound connections are out of the ledger's scope.
+- lsof escapes spaces in command names as `\x20` (e.g. `Google\x20Chrome`); PortHawk unescapes them and preserves any backslash sequence it does not recognize.
+
+## Inspiration & Credits
+
+**[Pulse](https://github.com/egoist/pulse)** (Go + WebView menu bar system monitor) — brand ink dots, the detail inspector, force-quit semantics and filter presets came from static analysis of its binary; its full-machine monitoring scope was deliberately left out.
+
+**[PortBar](https://github.com/egoist/portbar)** (Swift menu bar port monitor) — favorite placeholder rows, keeping the last snapshot on scan failure, scan timeout, two-step kill confirmation, copyable sudo command, menu bar count badge, launch at login.
+
+## Layout
 
 ```
 Sources/
-├── main.swift          入口分发（菜单栏应用 / CLI / 截图与图标诊断）
+├── main.swift          Entry dispatch (menu bar app / CLI / self-test / screenshot & icon diagnostics)
 ├── Core/
-│   ├── PortScanner.swift   lsof 解析 + proc_pidinfo 项目推断与明细数据 + kill
-│   ├── AppState.swift      轮询、新旧 diff、收藏告警、分组、明细采样、偏好迁移
-│   └── DevBrand.swift      进程品牌目录（约 90 项开发工具）
+│   ├── PortScanner.swift   lsof parsing, exposure classification, proc_pidinfo detail data, kill
+│   ├── AppState.swift      Polling, snapshot diff, favorite alerts, grouping, detail sampling, pref migration
+│   ├── AlertRules.swift    Pure snapshot-diff rules (kept free of UI and I/O for the self-test suite)
+│   ├── SelfTest.swift      Assertion suite behind --selftest
+│   └── DevBrand.swift      Process brand catalog (~100 dev tools)
 └── UI/
-    ├── PanelViews.swift    账簿面板、明细页、设置页
-    └── Theme.swift         纸面视觉令牌（纸、墨、蓝墨、朱砂、赭金）
+    ├── PanelViews.swift    Ledger panel, detail inspector, settings
+    └── Theme.swift         Paper visual tokens (paper, ink, blue, vermilion, ochre)
 ```
 
-偏好存储于 UserDefaults（域 `app.porthawk.PortHawk`）；从旧 bundle id（`local.controlport.app`）升级会自动迁移收藏与设置。
+Preferences live in UserDefaults (domain `app.porthawk.PortHawk`); upgrading from an older bundle id (`local.controlport.app`, `app.portpeek.PortPeek`) migrates favorites and settings automatically.
 
 ## License
 

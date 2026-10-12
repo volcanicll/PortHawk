@@ -4,3 +4,7 @@ build/
 .swiftpm/
 AppIcon.iconset/
 build/*.png
+
+# Diagnostic captures of the real machine (local ports, PIDs, paths) — not for
+# the repository; the curated screenshots under verify/ are the ones we ship.
+verify/real.png
