@@ -189,15 +189,20 @@ private struct LedgerListView: View {
                 .clipped()
         } else {
             ScrollView { content }
-                .animation(.easeOut(duration: 0.25), value: state.entries)
         }
     }
 
     @ViewBuilder
     private var content: some View {
-        // A few dozen rows at most: a plain VStack is enough and keeps
-        // offscreen rendering working.
-        VStack(spacing: 0) {
+        // LazyVStack, not VStack: a ledger can hold hundreds of listeners, and a
+        // plain VStack builds every row — each with its own onHover, contextMenu
+        // and action menu — up front, which is what dropped frames while scrolling.
+        // Lazy rows are created only as they scroll into view.
+        //
+        // The whole-list `.animation(...)` this used to carry is gone too: it
+        // animated every row on every 3-second poll, so a scroll was fighting a
+        // list-wide transition on top of the rows being rebuilt.
+        LazyVStack(spacing: 0, pinnedViews: []) {
             if state.groups.isEmpty {
                 emptyState(allEmpty: state.entries.isEmpty && state.favorites.isEmpty)
             } else {
@@ -302,7 +307,7 @@ private struct LedgerRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    if let brand = DevBrand.match(processName: entry.processName) {
+                    if let brand = entry.brand {
                         // Brand ink dot: a bead of colored ink on the paper.
                         Circle()
                             .fill(brand.color)
@@ -328,7 +333,7 @@ private struct LedgerRow: View {
                         SealMark(character: "new", color: Paper.blue)
                     }
                 }
-                Text(subtitle)
+                Text(entry.subtitleText)
                     .font(Paper.mono(10))
                     .foregroundStyle(Paper.inkSoft)
                     .lineLimit(1)
@@ -353,7 +358,7 @@ private struct LedgerRow: View {
             if entry.pid > 0 { state.openDetail(entry) }
         }
         .overlay(alignment: .leading) { strikeLine }
-        .help(helpText)
+        .help(entry.helpText)
         .opacity((isPlaceholder ? 0.55 : (isKilling ? 0.55 : 1)) * appear)
         // Entrance animation: rows fade up as they arrive. `appear` is 1 unless
         // the frame renderer is driving a transition.
@@ -397,31 +402,6 @@ private struct LedgerRow: View {
         Button("Force end (SIGKILL)", role: .destructive) {
             state.requestKill(entry, force: true)
         }
-    }
-
-    /// Second line: PID plus the parent directory of the project. Deterministic
-    /// layout instead of relying on dynamic truncation; the full path is in the
-    /// hover tooltip.
-    private var subtitle: String {
-        guard entry.pid > 0 else { return "favorited port · idle" }
-        var parts = ["PID \(entry.pid)"]
-        if let path = entry.projectPath {
-            let components = path.split(separator: "/").map(String.init)
-            if components.count >= 2 {
-                parts.append("…/\(components[components.count - 2])")
-            }
-        } else {
-            parts.append("system process")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private var helpText: String {
-        guard entry.pid > 0 else { return "Favorited port, no process listening" }
-        var parts = ["\(entry.processName) (PID \(entry.pid))"]
-        if let path = entry.projectPath { parts.append(path) }
-        parts.append(entry.isLanExposed ? "Listening on all interfaces, reachable from the LAN" : "Loopback only")
-        return parts.joined(separator: "\n")
     }
 
     private var scopeBadge: some View {

@@ -140,7 +140,18 @@ enum DevBrand {
 
     /// Match a process name to a brand: exact match first, then the longest
     /// prefix match, case-insensitively.
+    ///
+    /// Memoized: the row body asks for this on every evaluation pass, and the
+    /// same handful of process names repeat across hundreds of listeners — a
+    /// lsof table of 300 Chrome/node helpers is still one table lookup.
     static func match(processName: String) -> Brand? {
+        if let hit = cache[processName] { return hit }
+        let result = lookup(processName)
+        cache[processName] = result
+        return result
+    }
+
+    private static func lookup(_ processName: String) -> Brand? {
         let name = processName.lowercased()
         guard !name.isEmpty else { return nil }
         if let exact = table.first(where: { $0.key == name }) {
@@ -151,4 +162,18 @@ enum DevBrand {
             .max { $0.key.count < $1.key.count }?
             .brand
     }
+
+    /// Wrapped in a class so the mutable memo is safe to touch from the render
+    /// path; `nil` results are stored as an explicit `.none` so unknown process
+    /// names are not re-scanned either.
+    private static let memo = Memo()
+    private final class Memo {
+        private let lock = NSLock()
+        private var storage: [String: Brand?] = [:]
+        subscript(_ key: String) -> Brand?? {
+            get { lock.lock(); defer { lock.unlock() }; return storage[key] }
+            set { lock.lock(); defer { lock.unlock() }; storage[key] = newValue }
+        }
+    }
+    private static var cache: Memo { memo }
 }

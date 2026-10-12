@@ -19,6 +19,39 @@ struct PortEntry: Identifiable, Equatable {
 
     var id: String { "\(port)-\(pid)" }
 
+    // MARK: - Precomputed display strings
+    //
+    // These are read by the row body on every SwiftUI evaluation pass. Deriving
+    // them inline meant splitting paths and joining arrays hundreds of times per
+    // frame once the ledger grew past a few dozen listeners.
+
+    /// Second line: PID plus the parent directory of the project.
+    var subtitleText: String {
+        guard pid > 0 else { return "favorited port · idle" }
+        var parts = ["PID \(pid)"]
+        if let path = projectPath {
+            let components = path.split(separator: "/").map(String.init)
+            if components.count >= 2 {
+                parts.append("…/\(components[components.count - 2])")
+            }
+        } else {
+            parts.append("system process")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Hover tooltip: process, full path and the exposure verdict.
+    var helpText: String {
+        guard pid > 0 else { return "Favorited port, no process listening" }
+        var parts = ["\(processName) (PID \(pid))"]
+        if let path = projectPath { parts.append(path) }
+        parts.append(isLanExposed ? "Listening on all interfaces, reachable from the LAN" : "Loopback only")
+        return parts.joined(separator: "\n")
+    }
+
+    /// Brand ink dot for this process, if it is a known dev tool.
+    var brand: DevBrand.Brand? { DevBrand.match(processName: processName) }
+
     /// true = reachable from outside this process (wildcard or a specific
     /// interface address); false = loopback only.
     var isLanExposed: Bool { PortScanner.isExposed(host: host) }
@@ -64,8 +97,14 @@ enum PortScanner {
     static func parseAll(_ output: String) -> [PortEntry] {
         var indexByID: [String: Int] = [:]
         var entries: [PortEntry] = []
+        // One process commonly holds many ports (a dev server with a watcher, a
+        // browser with a debug socket per tab). The working directory is a
+        // property of the PID, not of the row, so resolve it once per PID
+        // instead of once per listener — at 400 listeners on a single PID this
+        // is the difference between 400 proc_pidinfo calls per scan and one.
+        var cwdByPID: [pid_t: String?] = [:]
         for line in output.split(separator: "\n").dropFirst() {
-            guard let entry = parse(String(line)) else { continue }
+            guard let entry = parse(String(line), cwdCache: &cwdByPID) else { continue }
             if let existing = indexByID[entry.id] {
                 // Dual-stack: one (port, pid) can listen on loopback and on a
                 // wildcard address at once. Keep the widest exposure, otherwise a
@@ -215,7 +254,10 @@ enum PortScanner {
     /// lsof row layout: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME.
     /// COMMAND may contain spaces (we pass +c0), so locate the columns by
     /// finding a numeric PID immediately followed by an FD like "12u".
-    static func parse(_ line: String) -> PortEntry? {
+    ///
+    /// `cwdCache` memoizes the working-directory lookup per PID across the rows
+    /// of one table; pass nil (the default) to resolve for a single line.
+    static func parse(_ line: String, cwdCache: inout [pid_t: String?]) -> PortEntry? {
         let tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         guard tokens.count >= 9 else { return nil }
 
@@ -240,7 +282,13 @@ enum PortScanner {
               let port = Int(name[name.index(after: colon)...]), port > 0 else { return nil }
         let host = String(name[..<colon])
 
-        let cwd = workingDirectory(for: pid)
+        let cwd: String?
+        if let cached = cwdCache[pid] {
+            cwd = cached
+        } else {
+            cwd = workingDirectory(for: pid)
+            cwdCache[pid] = cwd
+        }
         return PortEntry(
             port: port,
             pid: pid,
@@ -249,6 +297,12 @@ enum PortScanner {
             project: cwd.flatMap(projectName),
             projectPath: cwd
         )
+    }
+
+    /// Single-line convenience wrapper (self-test and one-off parses).
+    static func parse(_ line: String) -> PortEntry? {
+        var cache: [pid_t: String?] = [:]
+        return parse(line, cwdCache: &cache)
     }
 
     /// Anything that is not loopback is reachable from outside this process.
