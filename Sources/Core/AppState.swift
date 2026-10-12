@@ -11,13 +11,23 @@ enum ViewMode: String, CaseIterable {
 /// drives the "new" seals, favorite-port alerts and the menu bar dot.
 @MainActor
 final class AppState: ObservableObject {
-    @Published var entries: [PortEntry] = []
-    @Published var viewMode: ViewMode {
-        didSet { defaults.set(viewMode.rawValue, forKey: "controlport.viewmode") }
+    @Published var entries: [PortEntry] = [] {
+        didSet { invalidateDerived() }
     }
-    @Published var query = ""
+    @Published var viewMode: ViewMode {
+        didSet {
+            defaults.set(viewMode.rawValue, forKey: "controlport.viewmode")
+            invalidateDerived()
+        }
+    }
+    @Published var query = "" {
+        didSet { invalidateDerived() }
+    }
     @Published var favorites: Set<Int> {
-        didSet { defaults.set(Array(favorites), forKey: "controlport.favorites") }
+        didSet {
+            defaults.set(Array(favorites), forKey: "controlport.favorites")
+            invalidateDerived()
+        }
     }
     /// Collapsed group names. "System & Other" starts collapsed; favorites and
     /// project groups can be collapsed too.
@@ -40,7 +50,9 @@ final class AppState: ObservableObject {
     /// Live CPU% on the detail page (delta between two polling samples).
     @Published var detailCPU: Double?
     /// Toolbar "exposed only" quick filter.
-    @Published var onlyExposed = false
+    @Published var onlyExposed = false {
+        didSet { invalidateDerived() }
+    }
     /// The latest scan failed (lsof could not spawn or timed out); previous data
     /// is kept and the footer says so.
     @Published var scanFailed = false
@@ -90,6 +102,11 @@ final class AppState: ObservableObject {
     private let defaults: UserDefaults
     private var previousIds: Set<String> = []
     private var previousOccupied: Set<Int> = []
+    /// Snapshot caches behind `filtered`, `groups` and `projectCount`; nil means
+    /// "recompute on next read".
+    private var cachedGroups: [(name: String, entries: [PortEntry])]?
+    private var cachedFiltered: [PortEntry]?
+    private var cachedProjectCount: Int?
     /// False until the first successful scan: without a prior snapshot there is
     /// no transition to detect.
     private var hasOccupiedBaseline = false
@@ -399,12 +416,16 @@ final class AppState: ObservableObject {
     }
 
     var projectCount: Int {
-        Set(entries.compactMap(\.project)).count
+        if let cached = cachedProjectCount { return cached }
+        let value = Set(entries.compactMap(\.project)).count
+        cachedProjectCount = value
+        return value
     }
 
     var filtered: [PortEntry] {
+        if let cached = cachedFiltered { return cached }
         let q = query.trimmingCharacters(in: .whitespaces)
-        return entries
+        let value = entries
             .filter { !onlyExposed || $0.isLanExposed }
             .filter {
                 q.isEmpty
@@ -413,13 +434,20 @@ final class AppState: ObservableObject {
                     || $0.processName.localizedCaseInsensitiveContains(q)
                     || ($0.project?.localizedCaseInsensitiveContains(q) ?? false)
             }
+        cachedFiltered = value
+        return value
     }
 
     /// Ledger groups. Favorites always come first: real rows plus faint
     /// placeholder rows for favorited ports that are idle. In project view the
     /// remaining entries group by project (favorites are not repeated) with
     /// "System & Other" last; in port view everything else lands in "All ports".
+    ///
+    /// Cached per snapshot: `groups` is read by the body of every group section,
+    /// so recomputing it on each of SwiftUI's evaluation passes made a 300-row
+    /// ledger rebuild the whole grouping several times per frame.
     var groups: [(name: String, entries: [PortEntry])] {
+        if let cached = cachedGroups { return cached }
         let visible = filtered
         let q = query.trimmingCharacters(in: .whitespaces)
 
@@ -445,6 +473,7 @@ final class AppState: ObservableObject {
         let unmarked = visible.filter { !favorites.contains($0.port) }
         if viewMode == .port {
             result.append(("All ports", unmarked))
+            cachedGroups = result
             return result
         }
         let byProject = Dictionary(grouping: unmarked) {
@@ -457,6 +486,15 @@ final class AppState: ObservableObject {
                 if b.name == AlertRules.systemGroupName { return true }
                 return a.name.localizedStandardCompare(b.name) == .orderedAscending
             }
+        cachedGroups = result
         return result
+    }
+
+    /// Drop the cached grouping/filter results. Called whenever an input changes
+    /// so the next read recomputes once instead of on every evaluation pass.
+    private func invalidateDerived() {
+        cachedGroups = nil
+        cachedFiltered = nil
+        cachedProjectCount = nil
     }
 }
