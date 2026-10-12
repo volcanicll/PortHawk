@@ -1,7 +1,8 @@
 name: Site
 
-# 落地页部署到 GitHub Pages。页面里的版本号是运行时从 Releases API 拉的，
-# 应用发新版不需要重部署本页；只有 site/ 本身变化才触发。
+# Deploys the landing page to GitHub Pages. The page reads the latest version
+# from the Releases API at runtime, so shipping a new app version never needs a
+# redeploy; only changes under site/ trigger this workflow.
 
 on:
   push:

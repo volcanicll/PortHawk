@@ -1,0 +1,41 @@
+{
+  "duration" : 14.041666666666666,
+  "fps" : 24,
+  "frameCount" : 337,
+  "height" : 1192,
+  "scenes" : [
+    {
+      "frame" : 0,
+      "name" : "empty"
+    },
+    {
+      "frame" : 14,
+      "name" : "arrive"
+    },
+    {
+      "frame" : 80,
+      "name" : "favorite"
+    },
+    {
+      "frame" : 107,
+      "name" : "end"
+    },
+    {
+      "frame" : 164,
+      "name" : "alert"
+    },
+    {
+      "frame" : 195,
+      "name" : "filter"
+    },
+    {
+      "frame" : 229,
+      "name" : "detail"
+    },
+    {
+      "frame" : 277,
+      "name" : "settings"
+    }
+  ],
+  "width" : 800
+}
